@@ -80,24 +80,31 @@ When deploying the frontend to Cloudflare Pages, configure the following environ
 ## 5. Deployment Options (Manual by User)
 
 ### Option A: Cloudflare Pages via Git Integration (Recommended)
-1. Push your repository to GitHub / GitLab.
-2. In the **Cloudflare Dashboard**, navigate to **Workers & Pages** > **Create application** > **Pages** > **Connect to Git**.
-3. Configure build settings:
-   - **Framework preset**: `Vite`
-   - **Root directory**: `apps/web` (or leave empty if using root scripts)
-   - **Build command**: `npm run build:web` (or `npm run build`)
-   - **Build output directory**: `dist` (or `apps/web/dist` if root directory is `/`)
-4. Add environment variable: `VITE_API_URL = https://your-api-domain.com`.
-5. Click **Save and Deploy**.
+1. In the **Cloudflare Dashboard**, navigate to **Workers & Pages** > **Create application** > **Pages** > **Connect to Git** (Select `Andy-AD-19/effective-sniffle`).
+2. Configure build settings:
+   - **Configuration Type 1 (Setting Root Directory to `apps/web`)**:
+     - **Root directory**: `apps/web`
+     - **Framework preset**: `Vite`
+     - **Build command**: `npm run build`
+     - **Build output directory**: `dist`
+   - **Configuration Type 2 (Using Repository Root `/`)**:
+     - **Root directory**: `/` (leave blank)
+     - **Framework preset**: `None` / `Vite`
+     - **Build command**: `npm run build`
+     - **Build output directory**: `apps/web/dist`
+     - **Deploy command** (if prompted): `npm run deploy` or leave blank
+3. Add environment variable: `VITE_API_URL = https://your-api-domain.com`.
+4. Click **Save and Deploy**.
 
 ### Option B: Cloudflare Wrangler CLI
-When you are ready to deploy manually using Wrangler:
+When you deploy directly using Wrangler from the terminal:
 
 ```bash
-# 1. Build the production web bundle
-npm run build:web
+# From repository root:
+npm run build
+npm run deploy
 
-# 2. Deploy to Cloudflare Pages using Wrangler
+# Or directly targeting the output directory:
 npx wrangler pages deploy apps/web/dist --project-name fmoh-inventory-web
 ```
 

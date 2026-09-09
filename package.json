@@ -14,6 +14,7 @@
     "build:api": "npm run build --workspace packages/shared && npm run db:generate --workspace apps/api && npm run build --workspace apps/api",
     "build:all": "npm run build --workspace packages/shared && npm run db:generate --workspace apps/api && npm run build --workspace apps/api && npm run build --workspace apps/web",
     "preview:web": "npm run preview --workspace apps/web",
+    "deploy": "wrangler pages deploy apps/web/dist",
     "lint": "npm run lint --workspace apps/api && npm run lint --workspace apps/web",
     "format": "prettier --write .",
     "tauri:dev": "npm run tauri:dev --workspace apps/web",
