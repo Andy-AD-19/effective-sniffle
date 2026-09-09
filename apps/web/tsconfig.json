@@ -14,8 +14,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@fmoh/shared": ["../../packages/shared/src/index.ts"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/shared/src"],
   "references": []
 }
