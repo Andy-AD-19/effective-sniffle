@@ -110,9 +110,35 @@ npx wrangler pages deploy apps/web/dist --project-name fmoh-inventory-web
 
 ---
 
-## 6. Verification & Health Check
+## 6. Backend API & Database Cloud Hosting
+
+The repository includes a ready-to-deploy containerized configuration for the **NestJS Backend + SQLite/PostgreSQL Database**:
+
+- `Dockerfile`: Multi-stage production container with automatic Prisma generation, database migrations/setup, and seed scripts.
+- `render.yaml`: Blueprint for 1-click cloud deployment on [Render](https://render.com) with persistent database storage.
+
+### Option A: Deploy Backend to Render (Free / Low Cost)
+1. Log into **[Render.com](https://render.com)**.
+2. Click **New +** > **Blueprint** (or **Web Service**).
+3. Connect your GitHub repository `https://github.com/Andy-AD-19/effective-sniffle`.
+4. Render will automatically detect `render.yaml` and `Dockerfile`, build the container, create the persistent database volume, run migrations, and start the API.
+5. Render assigns you a public HTTPS URL (e.g. `https://fmoh-inventory-api.onrender.com`).
+6. In your **Cloudflare Web App** (on the login screen or via Cloudflare `VITE_API_URL` variable), set the URL to your Render API address.
+
+### Option B: Deploy Backend to Railway / Fly.io / VPS
+1. Push this repository to **Railway** or **Fly.io** using Docker.
+2. Set Environment Variables:
+   - `PORT`: `3001`
+   - `DATABASE_URL`: `file:/app/data/inventory.db`
+   - `JWT_SECRET`: `your_random_production_jwt_secret`
+3. Point your Cloudflare frontend's `VITE_API_URL` to your Railway/Fly API domain.
+
+---
+
+## 7. Verification & Health Check
 
 After deployment, verify:
 1. **Root Load**: Navigate to your Cloudflare Pages URL (e.g. `https://fmoh-inventory-web.pages.dev`).
-2. **SPA Routing**: Refresh on sub-routes (e.g., `/receipts`, `/issues`) to confirm `_redirects` handles SPA fallback without 404 errors.
-3. **API Connectivity**: Verify login and data requests against your configured `VITE_API_URL`.
+2. **SPA Routing**: Refresh on sub-routes (e.g., `/receipts`, `/issues`) to confirm client-side routing works without 404 errors.
+3. **API Connectivity**: Click **Configure Server API URL** on the login screen, test the connection to your cloud API endpoint, and sign in.
+

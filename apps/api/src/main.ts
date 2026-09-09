@@ -11,9 +11,10 @@ async function bootstrap() {
   app.enableCors({ origin: true, credentials: true });
   app.setGlobalPrefix("api");
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-  const port = config.get<number>("API_PORT") ?? 3001;
-  await app.listen(port, "127.0.0.1");
-  console.log(`API listening on http://127.0.0.1:${port}/api`);
+  const port = Number(process.env.PORT ?? config.get<number>("API_PORT") ?? 3001);
+  const host = process.env.HOST ?? "0.0.0.0";
+  await app.listen(port, host);
+  console.log(`API listening on http://${host}:${port}/api`);
 }
 
 bootstrap();
