@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FMOH Institutional Inventory - Cloudflare Edge API Worker
  * Full-featured Serverless Backend & D1 Database integration for Cloudflare Workers
  */
@@ -654,9 +654,13 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/inspector/queue" && method === "GET") {
+      const pendingGrns = fallbackState.receipts.filter(r => r.status === "PENDING_INSPECTION") || [];
+      const pendingReturns = fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION") || [];
       return jsonResponse({
-        pendingReceipts: fallbackState.receipts.filter(r => r.status === "PENDING_INSPECTION"),
-        pendingReturns: fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION")
+        pendingReceipts: pendingGrns,
+        pendingGrns,
+        pendingReturns,
+        recentInspections: []
       });
     }
 

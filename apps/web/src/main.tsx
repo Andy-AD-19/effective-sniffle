@@ -7889,7 +7889,13 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 	const load = () => {
 		setLoading(true)
 		request<any>('/approver/queue', token)
-			.then(setQueue)
+			.then((res) => {
+				setQueue({
+					pendingIssues: Array.isArray(res?.pendingIssues) ? res.pendingIssues : [],
+					pendingAdjustments: Array.isArray(res?.pendingAdjustments) ? res.pendingAdjustments : [],
+					pendingDisposals: Array.isArray(res?.pendingDisposals) ? res.pendingDisposals : []
+				})
+			})
 			.catch(() => setQueue({ pendingIssues: [], pendingAdjustments: [], pendingDisposals: [] }))
 			.finally(() => setLoading(false))
 	}
@@ -7897,6 +7903,10 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 	useEffect(() => {
 		load()
 	}, [token])
+
+	const issuesCount = (queue?.pendingIssues ?? []).length
+	const adjustmentsCount = (queue?.pendingAdjustments ?? []).length
+	const disposalsCount = (queue?.pendingDisposals ?? []).length
 
 	async function handleIssueDecision(id: string, decision: 'approve' | 'reject') {
 		setActionLoading(`issue-${id}-${decision}`)
@@ -7985,7 +7995,7 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 						)}
 					>
 						<p className='text-xs font-semibold text-muted-foreground uppercase'>Stock Issuance Requests</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.pendingIssues.length}</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{issuesCount}</p>
 						<p className='text-[11px] text-muted-foreground mt-0.5'>Pending authorization</p>
 					</button>
 					<button
@@ -7998,7 +8008,7 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 						)}
 					>
 						<p className='text-xs font-semibold text-muted-foreground uppercase'>Reconciliation Adjustments</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.pendingAdjustments.length}</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{adjustmentsCount}</p>
 						<p className='text-[11px] text-muted-foreground mt-0.5'>Stock variance reviews</p>
 					</button>
 					<button
@@ -8010,9 +8020,9 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 								: 'border-border bg-background/50 hover:bg-background/80'
 						)}
 					>
-						<p className='text-xs font-semibold text-muted-foreground uppercase'>Disposal Requests</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.pendingDisposals.length}</p>
-						<p className='text-[11px] text-muted-foreground mt-0.5'>Damaged / obsolete stock</p>
+						<p className='text-xs font-semibold text-muted-foreground uppercase'>Stock Disposal Requests</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{disposalsCount}</p>
+						<p className='text-[11px] text-muted-foreground mt-0.5'>Disposal authorizations</p>
 					</button>
 				</div>
 			</div>
@@ -8162,7 +8172,13 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 	const load = () => {
 		setLoading(true)
 		request<any>('/inspector/queue', token)
-			.then(setQueue)
+			.then((res) => {
+				setQueue({
+					pendingReturns: Array.isArray(res?.pendingReturns) ? res.pendingReturns : [],
+					pendingGrns: Array.isArray(res?.pendingGrns) ? res.pendingGrns : Array.isArray(res?.pendingReceipts) ? res.pendingReceipts : [],
+					recentInspections: Array.isArray(res?.recentInspections) ? res.recentInspections : []
+				})
+			})
 			.catch(() => setQueue({ pendingReturns: [], pendingGrns: [], recentInspections: [] }))
 			.finally(() => setLoading(false))
 	}
@@ -8170,6 +8186,10 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 	useEffect(() => {
 		load()
 	}, [token])
+
+	const returnsCount = (queue?.pendingReturns ?? []).length
+	const grnsCount = (queue?.pendingGrns ?? []).length
+	const historyCount = (queue?.recentInspections ?? []).length
 
 	return (
 		<section className='space-y-5'>
@@ -8210,7 +8230,7 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 						)}
 					>
 						<p className='text-xs font-semibold text-muted-foreground uppercase'>Returned Items Queue</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.pendingReturns.length}</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{returnsCount}</p>
 						<p className='text-[11px] text-muted-foreground mt-0.5'>In holding storage (RET-HOLDING-01)</p>
 					</button>
 					<button
@@ -8223,7 +8243,7 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 						)}
 					>
 						<p className='text-xs font-semibold text-muted-foreground uppercase'>Goods Receiving (GRN) Queue</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.pendingGrns.length}</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{grnsCount}</p>
 						<p className='text-[11px] text-muted-foreground mt-0.5'>Supplier delivery verification</p>
 					</button>
 					<button
@@ -8236,7 +8256,7 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 						)}
 					>
 						<p className='text-xs font-semibold text-muted-foreground uppercase'>Recent Inspections</p>
-						<p className='mt-1 text-2xl font-bold text-foreground'>{queue.recentInspections.length}</p>
+						<p className='mt-1 text-2xl font-bold text-foreground'>{historyCount}</p>
 						<p className='text-[11px] text-muted-foreground mt-0.5'>Cleared and restocked logs</p>
 					</button>
 				</div>
