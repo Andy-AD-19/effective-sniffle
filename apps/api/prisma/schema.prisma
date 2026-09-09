@@ -1,0 +1,677 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String            @id @default(cuid())
+  email          String            @unique
+  passwordHash   String
+  fullName       String
+  role           String
+  departmentId   String?
+  department     Department?       @relation(fields: [departmentId], references: [id])
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  requestedApprovals ApprovalRequest[] @relation("ApprovalRequester")
+  decidedApprovals   ApprovalRequest[] @relation("ApprovalApprover")
+  auditLogs      AuditLog[]
+  ledgerEntries  StockLedgerEntry[]
+  materialReceipts DepartmentMaterialReceipt[]
+  notifications Notification[]
+  createdItems   Item[] @relation("ItemCreatedBy")
+  updatedItems   Item[] @relation("ItemUpdatedBy")
+  uploadedFiles  UploadedFile[]
+  assignedAssetCustodies FixedAssetCustody[]
+  requestedAdjustments StockAdjustment[] @relation("AdjustmentRequester")
+  approvedAdjustments  StockAdjustment[] @relation("AdjustmentApprover")
+  initiatedReturns     ItemReturn[]      @relation("ReturnInitiator")
+  conductedInspections ReturnInspection[] @relation("ReturnInspector")
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  active    Boolean  @default(true)
+  users     User[]
+  requests  IssueRequest[]
+  returns   ItemReturn[]
+  assetCustodies FixedAssetCustody[]
+  assignedItems  Item[] @relation("ItemDepartmentAssignment")
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  active      Boolean @default(true)
+  items       Item[]
+}
+
+model UnitOfMeasure {
+  id     String @id @default(cuid())
+  name   String @unique
+  symbol String @unique
+  items  Item[]
+}
+
+model FundingSource {
+  id     String @id @default(cuid())
+  name   String @unique
+  active Boolean @default(true)
+  items  Item[]
+  stockBatches StockBatch[]
+  goodsReceivingLines GoodsReceivingLine[]
+}
+
+model StoreLocation {
+  id      String @id @default(cuid())
+  name    String @unique
+  code    String @unique
+  active  Boolean @default(true)
+  shelves Shelf[]
+  items   Item[]
+  storageLocations StorageLocation[]
+  locationBalances StockLocationBalance[]
+  targetInspections ReturnInspection[] @relation("TargetStore")
+}
+
+model StorageLocation {
+  id             String @id @default(cuid())
+  storeId        String
+  store          StoreLocation @relation(fields: [storeId], references: [id])
+  locationCode   String @unique
+  gln            String? @unique
+  roomOrZone     String?
+  shelfNumber    String
+  rackNumber     String?
+  binNumber      String
+  description    String?
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  balances       StockLocationBalance[]
+  barcodes       BarcodeQRCode[]
+  ledgerEntries  StockLedgerEntry[]
+  returnLines    ItemReturnLine[]
+  targetInspections ReturnInspection[] @relation("TargetStorageLocation")
+
+  @@index([storeId])
+}
+
+model Shelf {
+  id              String @id @default(cuid())
+  code            String
+  storeLocationId String
+  storeLocation   StoreLocation @relation(fields: [storeLocationId], references: [id])
+  bins            Bin[]
+
+  @@unique([storeLocationId, code])
+}
+
+model Bin {
+  id      String @id @default(cuid())
+  code    String
+  shelfId String
+  shelf   Shelf @relation(fields: [shelfId], references: [id])
+
+  @@unique([shelfId, code])
+}
+
+model Item {
+  id              String        @id @default(cuid())
+  code            String        @unique
+  gtin            String?       @unique
+  description     String
+  kind            String        @default("CONSUMABLE")
+  categoryId      String
+  category        Category      @relation(fields: [categoryId], references: [id])
+  subCategory     String?
+  unitId          String
+  unit            UnitOfMeasure @relation(fields: [unitId], references: [id])
+  defaultLocationId String?
+  defaultLocation StoreLocation? @relation(fields: [defaultLocationId], references: [id])
+  reorderLevel    Decimal
+  minimumStock    Decimal
+  maximumStock    Decimal
+  fundingSourceId String?
+  fundingSource   FundingSource? @relation(fields: [fundingSourceId], references: [id])
+  batchTrackingRequired Boolean @default(false)
+  expiryTrackingRequired Boolean @default(false)
+  barcodeRequired Boolean @default(true)
+  serialNumber    String?
+  modelNumber     String?
+  depreciationRate Decimal?
+  maintenanceCycle String?
+  departmentAssignmentId String?
+  departmentAssignment   Department? @relation("ItemDepartmentAssignment", fields: [departmentAssignmentId], references: [id])
+  calibrationDueDate DateTime?
+  active          Boolean       @default(true)
+  createdById     String?
+  createdBy       User?         @relation("ItemCreatedBy", fields: [createdById], references: [id])
+  updatedById     String?
+  updatedBy       User?         @relation("ItemUpdatedBy", fields: [updatedById], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  grnLines        GoodsReceivingLine[]
+  issueLines      IssueRequestLine[]
+  ledgerEntries   StockLedgerEntry[]
+  countLines      PhysicalCountLine[]
+  disposalLines   DisposalLine[]
+  adjustments     StockAdjustment[]
+  stockBatches    StockBatch[]
+  locationBalances StockLocationBalance[]
+  returnLines     ItemReturnLine[]
+  photoFileId      String?
+  photoFile        UploadedFile? @relation("ItemPhoto", fields: [photoFileId], references: [id])
+  documentFileId   String?
+  documentFile     UploadedFile? @relation("ItemDocument", fields: [documentFileId], references: [id])
+  assetCustodies   FixedAssetCustody[]
+
+  @@index([categoryId])
+  @@index([active])
+  @@index([fundingSourceId])
+}
+
+model FixedAssetCustody {
+  id                    String @id @default(cuid())
+  itemId                String
+  item                  Item @relation(fields: [itemId], references: [id])
+  assetTag              String @unique
+  serialNumber          String
+  custodianName         String
+  custodianDepartmentId String?
+  custodianDepartment   Department? @relation(fields: [custodianDepartmentId], references: [id])
+  location              String?
+  condition             String @default("GOOD")
+  status                String @default("ASSIGNED")
+  assignedAt            DateTime @default(now())
+  returnedAt            DateTime?
+  notes                 String?
+  assignedById          String?
+  assignedBy            User? @relation(fields: [assignedById], references: [id])
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([itemId, serialNumber])
+  @@index([itemId])
+  @@index([status])
+  @@index([custodianDepartmentId])
+}
+
+model SupplierDonor {
+  id        String @id @default(cuid())
+  name      String
+  type      String
+  contact   String?
+  active    Boolean @default(true)
+  receipts  GoodsReceivingNote[]
+}
+
+model GoodsReceivingNote {
+  id                    String          @id @default(cuid())
+  grnNumber             String          @unique
+  sourceType            String
+  purchaseOrderRef      String?
+  donationLetterRef     String?
+  governmentAllocationRef String?
+  projectSupportRef     String?
+  deliveryNoteRef       String?
+  supplierDonorId       String?
+  supplierDonor         SupplierDonor?  @relation(fields: [supplierDonorId], references: [id])
+  receivedAt            DateTime        @default(now())
+  createdById           String
+  status                String @default("DRAFT")
+  remarks               String?
+  lines                 GoodsReceivingLine[]
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @default(now()) @updatedAt
+
+  @@index([sourceType, status, receivedAt])
+}
+
+model GoodsReceivingLine {
+  id            String @id @default(cuid())
+  grnId         String
+  grn           GoodsReceivingNote @relation(fields: [grnId], references: [id])
+  itemId        String
+  item          Item @relation(fields: [itemId], references: [id])
+  quantityReceived Decimal
+  unitPrice     Decimal
+  batchNumber   String?
+  expiryDate    DateTime?
+  fundingSourceId String?
+  fundingSource FundingSource? @relation(fields: [fundingSourceId], references: [id])
+  remarks       String?
+  inspection    Inspection?
+  ledgerEntries StockLedgerEntry[]
+  stockBatches  StockBatch[]
+
+  @@index([itemId, batchNumber, expiryDate])
+}
+
+model StockBatch {
+  id                    String @id @default(cuid())
+  itemId                String
+  item                  Item @relation(fields: [itemId], references: [id])
+  grnLineId             String?
+  grnLine               GoodsReceivingLine? @relation(fields: [grnLineId], references: [id])
+  batchNumber           String?
+  expiryDate            DateTime?
+  receivedDate          DateTime @default(now())
+  unitCost              Decimal?
+  fundingSourceId       String?
+  fundingSource         FundingSource? @relation(fields: [fundingSourceId], references: [id])
+  sourceReference       String?
+  totalAcceptedQuantity Decimal
+  remainingQuantity     Decimal
+  barcodeValue          String @unique
+  qrCodeValue           String @unique
+  status                String @default("PENDING_STORAGE")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  locationBalances      StockLocationBalance[]
+  barcodes              BarcodeQRCode[]
+  ledgerEntries         StockLedgerEntry[]
+  returnLines           ItemReturnLine[]
+
+  @@index([itemId, batchNumber, expiryDate])
+  @@index([status])
+}
+
+model StockLocationBalance {
+  id                String @id @default(cuid())
+  itemId            String
+  item              Item @relation(fields: [itemId], references: [id])
+  batchId           String
+  batch             StockBatch @relation(fields: [batchId], references: [id])
+  storeId           String
+  store             StoreLocation @relation(fields: [storeId], references: [id])
+  storageLocationId String
+  storageLocation   StorageLocation @relation(fields: [storageLocationId], references: [id])
+  quantityOnHand    Decimal
+  quantityReserved  Decimal @default(0)
+  quantityAvailable Decimal
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  barcodes          BarcodeQRCode[]
+
+  @@unique([batchId, storageLocationId])
+  @@index([itemId])
+  @@index([storeId, storageLocationId])
+}
+
+model BarcodeQRCode {
+  id                String @id @default(cuid())
+  batchId           String
+  batch             StockBatch @relation(fields: [batchId], references: [id])
+  locationBalanceId String?
+  locationBalance   StockLocationBalance? @relation(fields: [locationBalanceId], references: [id])
+  storageLocationId String?
+  storageLocation   StorageLocation? @relation(fields: [storageLocationId], references: [id])
+  format            String
+  value             String @unique
+  payload           String
+  gs1ElementString  String?
+  uploadedFileId    String?
+  uploadedFile      UploadedFile? @relation(fields: [uploadedFileId], references: [id])
+  createdAt         DateTime @default(now())
+
+  @@index([batchId])
+  @@index([value])
+}
+
+model UploadedFile {
+  id           String @id @default(cuid())
+  originalName String
+  storedName   String @unique
+  mimeType     String
+  size         Int
+  path         String
+  category     String
+  uploadedById String?
+  uploadedBy   User? @relation(fields: [uploadedById], references: [id])
+  createdAt    DateTime @default(now())
+  itemPhotos   Item[] @relation("ItemPhoto")
+  itemDocuments Item[] @relation("ItemDocument")
+  barcodes     BarcodeQRCode[]
+
+  @@index([category])
+  @@index([uploadedById])
+}
+
+model Inspection {
+  id               String @id @default(cuid())
+  grnLineId        String @unique
+  grnLine          GoodsReceivingLine @relation(fields: [grnLineId], references: [id])
+  quantityVerified Decimal
+  quantityAccepted Decimal
+  quantityRejected Decimal
+  outcome          String
+  qualityStatus    String @default("PASS")
+  qualityNotes     String?
+  rejectionReason  String?
+  remarks          String?
+  storeLocationId  String?
+  shelfCode        String?
+  binCode          String?
+  barcode          String?
+  inspectedById    String
+  inspectedAt      DateTime @default(now())
+}
+
+model IssueRequest {
+  id             String @id @default(cuid())
+  requestNumber  String @unique
+  departmentId   String
+  department     Department @relation(fields: [departmentId], references: [id])
+  requesterId    String
+  recipientName  String?
+  purpose        String
+  status         String @default("SUBMITTED")
+  approval       ApprovalRequest?
+  voucher        StoreIssueVoucher?
+  materialReceipt DepartmentMaterialReceipt?
+  lines          IssueRequestLine[]
+  returns        ItemReturn[]
+  createdAt      DateTime @default(now())
+}
+
+model IssueRequestLine {
+  id              String @id @default(cuid())
+  issueRequestId  String
+  issueRequest    IssueRequest @relation(fields: [issueRequestId], references: [id])
+  itemId          String
+  item            Item @relation(fields: [itemId], references: [id])
+  quantity        Decimal
+}
+
+model StoreIssueVoucher {
+  id             String @id @default(cuid())
+  voucherNumber  String @unique
+  issueRequestId String @unique
+  issueRequest   IssueRequest @relation(fields: [issueRequestId], references: [id])
+  issuedById     String
+  issuedAt       DateTime @default(now())
+  ledgerEntries  StockLedgerEntry[]
+  materialReceipt DepartmentMaterialReceipt?
+  returns        ItemReturn[]
+}
+
+model DepartmentMaterialReceipt {
+  id             String @id @default(cuid())
+  receiptNumber  String @unique
+  issueRequestId String @unique
+  issueRequest   IssueRequest @relation(fields: [issueRequestId], references: [id])
+  voucherId      String @unique
+  voucher        StoreIssueVoucher @relation(fields: [voucherId], references: [id])
+  receivedById   String
+  receivedBy     User @relation(fields: [receivedById], references: [id])
+  receivedAt     DateTime @default(now())
+  notes          String?
+}
+
+model ApprovalRequest {
+  id              String @id @default(cuid())
+  type            String
+  status          String @default("PENDING")
+  targetEntity    String
+  targetId        String
+  requesterId     String
+  requester       User @relation("ApprovalRequester", fields: [requesterId], references: [id])
+  approverId      String?
+  approver        User? @relation("ApprovalApprover", fields: [approverId], references: [id])
+  decisionReason  String?
+  decidedAt       DateTime?
+  createdAt       DateTime @default(now())
+  issueRequest    IssueRequest? @relation(fields: [issueRequestId], references: [id])
+  issueRequestId  String? @unique
+}
+
+model StockLedgerEntry {
+  id              String @id @default(cuid())
+  entryNumber     String @unique
+  type            String
+  itemId          String
+  item            Item @relation(fields: [itemId], references: [id])
+  quantity        Decimal
+  unitCost        Decimal?
+  batchId         String?
+  batch           StockBatch? @relation(fields: [batchId], references: [id])
+  batchNumber     String?
+  expiryDate      DateTime?
+  storeLocationId String?
+  storageLocationId String?
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id])
+  shelfCode       String?
+  binCode         String?
+  sourceEntity    String
+  sourceId        String
+  grnLineId       String?
+  grnLine         GoodsReceivingLine? @relation(fields: [grnLineId], references: [id])
+  voucherId       String?
+  voucher         StoreIssueVoucher? @relation(fields: [voucherId], references: [id])
+  actorId         String
+  actor           User @relation(fields: [actorId], references: [id])
+  postedAt        DateTime @default(now())
+  notes           String?
+
+  @@index([itemId, batchNumber, expiryDate])
+  @@index([type, postedAt])
+  @@index([sourceEntity, sourceId])
+}
+
+model PhysicalCount {
+  id          String @id @default(cuid())
+  countNumber String @unique
+  cycleType   String
+  status      String @default("OPEN")
+  locationId  String?
+  categoryId  String?
+  openedById  String
+  openedAt    DateTime @default(now())
+  submittedAt DateTime?
+  lines       PhysicalCountLine[]
+  adjustments StockAdjustment[]
+}
+
+model PhysicalCountLine {
+  id             String @id @default(cuid())
+  physicalCountId String
+  physicalCount  PhysicalCount @relation(fields: [physicalCountId], references: [id])
+  itemId         String
+  item           Item @relation(fields: [itemId], references: [id])
+  batchId        String?
+  storageLocationId String?
+  storeId        String?
+  batchNumber    String?
+  expiryDate     DateTime?
+  systemQuantity Decimal
+  countedQuantity Decimal?
+  variance       Decimal?
+  notes          String?
+  adjustment     StockAdjustment?
+}
+
+model StockAdjustment {
+  id                  String @id @default(cuid())
+  adjustmentNumber    String @unique
+  physicalCountId     String?
+  physicalCount       PhysicalCount? @relation(fields: [physicalCountId], references: [id])
+  physicalCountLineId String? @unique
+  physicalCountLine   PhysicalCountLine? @relation(fields: [physicalCountLineId], references: [id])
+  itemId              String
+  item                Item @relation(fields: [itemId], references: [id])
+  batchId             String?
+  storageLocationId   String?
+  storeId             String?
+  batchNumber         String?
+  expiryDate          DateTime?
+  quantityDelta       Decimal
+  reason              String
+  status              String @default("PENDING")
+  requestedById       String
+  requestedBy         User @relation("AdjustmentRequester", fields: [requestedById], references: [id])
+  approverId          String?
+  approver            User? @relation("AdjustmentApprover", fields: [approverId], references: [id])
+  approvalComment     String?
+  decidedAt           DateTime?
+  ledgerEntryId       String?
+  createdAt           DateTime @default(now())
+
+  @@index([status])
+  @@index([itemId])
+}
+
+model DisposalRequest {
+  id             String @id @default(cuid())
+  disposalNumber String @unique
+  status         String @default("IDENTIFIED")
+  reason         String
+  committeeNotes String?
+  approvalId     String?
+  method         String?
+  disposedAt     DateTime?
+  responsibleParties String?
+  createdById    String
+  createdAt      DateTime @default(now())
+  lines          DisposalLine[]
+}
+
+model DisposalReason {
+  id          String @id @default(cuid())
+  name        String @unique
+  description String?
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DisposalLine {
+  id                String @id @default(cuid())
+  disposalRequestId String
+  disposalRequest   DisposalRequest @relation(fields: [disposalRequestId], references: [id])
+  itemId            String
+  item              Item @relation(fields: [itemId], references: [id])
+  batchId           String?
+  storageLocationId String?
+  storeId           String?
+  quantity          Decimal
+  batchNumber       String?
+  expiryDate        DateTime?
+}
+
+model Notification {
+  id        String @id @default(cuid())
+  type      String
+  title     String
+  message   String
+  userId    String?
+  user      User? @relation(fields: [userId], references: [id])
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, readAt])
+}
+
+model ReportExport {
+  id          String @id @default(cuid())
+  reportType  String
+  format      String
+  filters     String
+  generatedById String
+  generatedAt DateTime @default(now())
+}
+
+model AuditLog {
+  id          String @id @default(cuid())
+  actorId     String?
+  actor       User? @relation(fields: [actorId], references: [id])
+  action      String
+  entityType  String
+  entityId    String?
+  before      String?
+  after       String?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model ItemReturn {
+  id              String            @id @default(cuid())
+  returnNumber    String            @unique
+  issueRequestId  String?
+  issueRequest    IssueRequest?     @relation(fields: [issueRequestId], references: [id])
+  voucherId       String?
+  voucher         StoreIssueVoucher? @relation(fields: [voucherId], references: [id])
+  departmentId    String?
+  department      Department?       @relation(fields: [departmentId], references: [id])
+  returnedById    String
+  returnedBy      User              @relation("ReturnInitiator", fields: [returnedById], references: [id])
+  reason          String
+  conditionNotes  String?
+  status          String            @default("PENDING_INSPECTION")
+  returnedAt      DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  lines           ItemReturnLine[]
+  inspections     ReturnInspection[]
+
+  @@index([status])
+  @@index([returnedAt])
+}
+
+model ItemReturnLine {
+  id                String            @id @default(cuid())
+  returnId          String
+  returnRecord      ItemReturn        @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  itemId            String
+  item              Item              @relation(fields: [itemId], references: [id])
+  batchId           String?
+  batch             StockBatch?       @relation(fields: [batchId], references: [id])
+  batchNumber       String?
+  storageLocationId String?
+  storageLocation   StorageLocation?  @relation(fields: [storageLocationId], references: [id])
+  quantityReturned  Decimal
+  quantityAccepted  Decimal?          @default(0)
+  quantityRejected  Decimal?          @default(0)
+  conditionNotes    String?
+  status            String            @default("PENDING_INSPECTION")
+  inspections       ReturnInspection[]
+}
+
+model ReturnInspection {
+  id                      String           @id @default(cuid())
+  returnId                String
+  returnRecord            ItemReturn       @relation(fields: [returnId], references: [id])
+  returnLineId            String?
+  returnLine              ItemReturnLine?  @relation(fields: [returnLineId], references: [id])
+  outcome                 String
+  qualityStatus           String           @default("PASS")
+  quantityInspected       Decimal
+  quantityAccepted        Decimal          @default(0)
+  quantityRejected        Decimal          @default(0)
+  targetStoreId           String?
+  targetStore             StoreLocation?   @relation("TargetStore", fields: [targetStoreId], references: [id])
+  targetStorageLocationId String?
+  targetStorageLocation   StorageLocation? @relation("TargetStorageLocation", fields: [targetStorageLocationId], references: [id])
+  rejectionReason         String?
+  remarks                 String?
+  inspectedById           String
+  inspectedBy             User             @relation("ReturnInspector", fields: [inspectedById], references: [id])
+  inspectedAt             DateTime         @default(now())
+
+  @@index([returnId])
+  @@index([inspectedAt])
+}
+
