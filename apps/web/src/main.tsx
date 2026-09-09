@@ -49,6 +49,7 @@ import {
 	Warehouse,
 	X,
 	Users,
+	Server,
 } from 'lucide-react'
 import {
 	buildOfflineQrLabelDataUrl,
@@ -97,7 +98,31 @@ import {
 import { SearchableSelect } from './components/SearchableSelect'
 import './styles.css'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:3001'
+export function getApiBaseUrl(): string {
+	try {
+		const stored = localStorage.getItem('fmoh_api_url')
+		if (stored && stored.trim()) {
+			return stored.trim().replace(/\/+$/, '')
+		}
+	} catch {}
+	const envUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
+	if (envUrl) return envUrl
+	if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+		return window.location.origin
+	}
+	return 'http://127.0.0.1:3001'
+}
+
+export function setApiBaseUrl(url: string) {
+	try {
+		const cleaned = url.trim().replace(/\/+$/, '')
+		if (cleaned) {
+			localStorage.setItem('fmoh_api_url', cleaned)
+		} else {
+			localStorage.removeItem('fmoh_api_url')
+		}
+	} catch {}
+}
 
 type User = {
 	id: string
@@ -992,7 +1017,7 @@ async function request<T>(
 }
 
 async function apiBaseUrl() {
-	return isDesktop() ? await desktopApiUrl() : API_URL
+	return isDesktop() ? await desktopApiUrl() : getApiBaseUrl()
 }
 
 async function friendlyResponseError(response: Response) {
@@ -1010,7 +1035,7 @@ async function friendlyResponseError(response: Response) {
 }
 
 function fileUrl(fileId?: string) {
-	return fileId ? `${API_URL}/api/uploads/${fileId}` : ''
+	return fileId ? `${getApiBaseUrl()}/api/uploads/${fileId}` : ''
 }
 
 function cachedValue<T>(key: string, fallback: T): T {
@@ -1326,6 +1351,9 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 	const [password, setPassword] = useState('Password123!')
 	const [error, setError] = useState('')
 	const [loading, setLoading] = useState(false)
+	const [showServerConfig, setShowServerConfig] = useState(false)
+	const [serverUrl, setServerUrl] = useState(getApiBaseUrl())
+	const [testStatus, setTestStatus] = useState<string | null>(null)
 
 	async function submit(event: React.FormEvent) {
 		event.preventDefault()
@@ -1420,6 +1448,55 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 						loadingLabel='Signing in...'
 					/>
 				</button>
+				<div className='mt-4 pt-3 border-t border-border/60'>
+					<button
+						type='button'
+						onClick={() => setShowServerConfig(!showServerConfig)}
+						className='text-xs text-primary hover:underline flex items-center gap-1.5'
+					>
+						<Server size={13} />
+						{showServerConfig ? 'Hide Server URL Settings' : 'Configure Server API URL'}
+					</button>
+					{showServerConfig && (
+						<div className='mt-2 space-y-2 rounded-md bg-background/60 p-2.5 text-xs border border-border/50'>
+							<label className='block font-medium text-foreground'>
+								Backend API Base URL
+								<input
+									className='mt-1 w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs'
+									value={serverUrl}
+									onChange={(e) => {
+										setServerUrl(e.target.value)
+										setApiBaseUrl(e.target.value)
+									}}
+									placeholder='https://api.yourdomain.com'
+								/>
+							</label>
+							<div className='flex items-center justify-between gap-2 pt-1'>
+								<button
+									type='button'
+									onClick={async () => {
+										setTestStatus('Testing...')
+										try {
+											const res = await fetch(`${getApiBaseUrl()}/api/health`, { method: 'GET' })
+											if (res.ok) setTestStatus('Connected successfully!')
+											else setTestStatus(`HTTP ${res.status}`)
+										} catch (e: any) {
+											setTestStatus(e.message || 'Connection failed')
+										}
+									}}
+									className='rounded bg-secondary px-2 py-1 text-xs hover:bg-secondary/80 font-medium'
+								>
+									Test Connection
+								</button>
+								{testStatus && (
+									<span className={`text-[11px] truncate ${testStatus.includes('success') ? 'text-success font-medium' : 'text-danger'}`}>
+										{testStatus}
+									</span>
+								)}
+							</div>
+						</div>
+					)}
+				</div>
 				<p className='mt-4 text-xs text-muted-foreground'>
 					Seed users: admin, storekeeper, requester, approver, auditor
 					@fmoh.local
