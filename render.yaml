@@ -1,4 +1,4 @@
-﻿services:
+services:
   - type: web
     name: fmoh-inventory-api
     runtime: docker
@@ -13,7 +13,3 @@
         generateValue: true
       - key: CORS_ORIGIN
         value: "*"
-    disk:
-      name: fmoh-data
-      mountPath: /app/data
-      sizeGB: 1
