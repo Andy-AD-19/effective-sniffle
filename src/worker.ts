@@ -83,12 +83,12 @@ const fallbackState = {
     { id: "cat-eqp", name: "Medical Equipment", description: "Durable medical and hospital devices", active: 1 }
   ],
   unitsOfMeasure: [
-    { id: "unit-box", name: "Box", symbol: "box" },
-    { id: "unit-pack", name: "Pack", symbol: "pack" },
-    { id: "unit-ea", name: "Each", symbol: "ea" },
-    { id: "unit-vial", name: "Vial", symbol: "vial" },
-    { id: "unit-bottle", name: "Bottle", symbol: "btl" },
-    { id: "unit-kit", name: "Kit", symbol: "kit" }
+    { id: "unit-box", name: "Box", symbol: "box", active: 1 },
+    { id: "unit-pack", name: "Pack", symbol: "pack", active: 1 },
+    { id: "unit-ea", name: "Each", symbol: "ea", active: 1 },
+    { id: "unit-vial", name: "Vial", symbol: "vial", active: 1 },
+    { id: "unit-bottle", name: "Bottle", symbol: "btl", active: 1 },
+    { id: "unit-kit", name: "Kit", symbol: "kit", active: 1 }
   ],
   fundingSources: [
     { id: "fund-gov", name: "Government Treasury Allocation", active: 1 },
@@ -219,6 +219,7 @@ const fallbackState = {
       createdAt: new Date().toISOString()
     }
   ],
+  assetCustody: [] as any[],
   receipts: [] as any[],
   issues: [] as any[],
   returns: [] as any[],
@@ -231,6 +232,98 @@ const fallbackState = {
   auditLogs: [] as any[],
   notifications: [] as any[]
 };
+
+// Seed initial stock batches & balances for sample items
+(function seedInitialStock() {
+  const initialBatches = [
+    {
+      id: "batch-amox-01",
+      itemId: "item-amox",
+      batchNumber: "AMX-2026-01",
+      expiryDate: "2027-12-31",
+      unitCost: 15.5,
+      totalAcceptedQuantity: 300,
+      remainingQuantity: 250,
+      status: "AVAILABLE",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "batch-para-01",
+      itemId: "item-para",
+      batchNumber: "PAR-2026-01",
+      expiryDate: "2028-06-30",
+      unitCost: 8.0,
+      totalAcceptedQuantity: 500,
+      remainingQuantity: 450,
+      status: "AVAILABLE",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "batch-syr-01",
+      itemId: "item-syr",
+      batchNumber: "SYR-2026-01",
+      expiryDate: "2029-01-01",
+      unitCost: 12.0,
+      totalAcceptedQuantity: 1000,
+      remainingQuantity: 800,
+      status: "AVAILABLE",
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  fallbackState.batches = initialBatches;
+
+  fallbackState.balances = [
+    {
+      id: "bal-01",
+      itemId: "item-amox",
+      batchId: "batch-amox-01",
+      storeId: "store-main",
+      storageLocationId: "loc-01",
+      quantityOnHand: 250,
+      quantityReserved: 0,
+      quantityAvailable: 250,
+      unitCost: 15.5
+    },
+    {
+      id: "bal-02",
+      itemId: "item-para",
+      batchId: "batch-para-01",
+      storeId: "store-main",
+      storageLocationId: "loc-01",
+      quantityOnHand: 450,
+      quantityReserved: 0,
+      quantityAvailable: 450,
+      unitCost: 8.0
+    },
+    {
+      id: "bal-03",
+      itemId: "item-syr",
+      batchId: "batch-syr-01",
+      storeId: "store-main",
+      storageLocationId: "loc-02",
+      quantityOnHand: 800,
+      quantityReserved: 0,
+      quantityAvailable: 800,
+      unitCost: 12.0
+    }
+  ];
+
+  fallbackState.ledger = [
+    {
+      id: "led-init-1",
+      itemId: "item-amox",
+      entryType: "RECEIPT",
+      quantityIn: 300,
+      quantityOut: 50,
+      balanceAfter: 250,
+      unitPrice: 15.5,
+      referenceType: "GRN",
+      referenceId: "GRN-INITIAL",
+      createdAt: new Date().toISOString()
+    }
+  ];
+})();
 
 // All permissions mapping per Role
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -263,14 +356,15 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 // Helper: JSON Response
-function jsonResponse(data: any, status = 200): Response {
+function jsonResponse(data: any, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With"
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+      ...extraHeaders
     }
   });
 }
@@ -316,6 +410,57 @@ function parseAuthUser(request: Request): any | null {
 // Auto-ID generator
 function uid(prefix = "id"): string {
   return `${prefix}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+// Master Data mapping helper
+function getMasterDataList(model: string): any[] | null {
+  switch (model) {
+    case "category":
+    case "categories":
+      return fallbackState.categories;
+    case "unitOfMeasure":
+    case "unitsOfMeasure":
+      return fallbackState.unitsOfMeasure;
+    case "fundingSource":
+    case "fundingSources":
+      return fallbackState.fundingSources;
+    case "storeLocation":
+    case "stores":
+      return fallbackState.stores;
+    case "department":
+    case "departments":
+      return fallbackState.departments;
+    case "supplierDonor":
+    case "suppliers":
+      return fallbackState.suppliers;
+    case "disposalReason":
+    case "disposalReasons":
+      return fallbackState.disposalReasons;
+    default:
+      return null;
+  }
+}
+
+function normalizeMasterItem(model: string, input: any, generatedId = uid(model.slice(0, 4))) {
+  const active = input.active !== undefined ? (input.active ? 1 : 0) : 1;
+  switch (model) {
+    case "category":
+      return { id: generatedId, name: input.name, description: input.description || "", active };
+    case "unitOfMeasure":
+      return { id: generatedId, name: input.name, symbol: input.symbol || input.name?.slice(0, 4)?.toLowerCase() || "unit", active };
+    case "fundingSource":
+      return { id: generatedId, name: input.name, active };
+    case "storeLocation":
+      return { id: generatedId, name: input.name, code: input.code || input.name?.slice(0, 4)?.toUpperCase() || "LOC", active };
+    case "department":
+      return { id: generatedId, name: input.name, code: input.code || input.name?.slice(0, 4)?.toUpperCase() || "DPT", active };
+    case "supplierDonor":
+      return { id: generatedId, name: input.name, type: input.type || "VENDOR", contact: input.contact || "", active };
+    case "disposalReason":
+      return { id: generatedId, name: input.name, description: input.description || "", active };
+    default:
+      return { id: generatedId, name: input.name, ...input, active };
+  }
 }
 
 export default {
@@ -423,7 +568,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(user);
     }
 
-    // 4. Master Data
+    // 4. Master Data (Aggregate)
     if (path === "/master-data" && method === "GET") {
       return jsonResponse({
         departments: fallbackState.departments,
@@ -437,16 +582,157 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       });
     }
 
-    // 5. Items CRUD
+    // 5. Admin Master Data: List, Create, Update, Delete Many
+    // Matches: /admin/master-data/:model and /admin/master-data/:model/:id
+    if (path.startsWith("/admin/master-data/")) {
+      const parts = path.split("/").filter(Boolean); // ['admin', 'master-data', 'model', ':id?']
+      const model = parts[2];
+      const targetId = parts[3];
+      const list = getMasterDataList(model);
+
+      if (!list) {
+        return jsonResponse({ message: `Unknown master-data model: ${model}` }, 400);
+      }
+
+      // GET /admin/master-data/:model
+      if (method === "GET" && !targetId) {
+        return jsonResponse(list);
+      }
+
+      // POST /admin/master-data/:model
+      if (method === "POST" && !targetId) {
+        const body = await request.json<any>();
+        if (!body.name || !body.name.trim()) {
+          return jsonResponse({ message: "Name is required" }, 400);
+        }
+        const newItem = normalizeMasterItem(model, body);
+        list.push(newItem);
+
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.create`,
+          entityType: model,
+          entityId: newItem.id,
+          createdAt: new Date().toISOString()
+        });
+
+        return jsonResponse(newItem, 201);
+      }
+
+      // PATCH /admin/master-data/:model/:id
+      if (method === "PATCH" && targetId) {
+        const body = await request.json<any>();
+        const idx = list.findIndex(item => item.id === targetId);
+        if (idx === -1) {
+          return jsonResponse({ message: "Configuration record not found" }, 404);
+        }
+
+        const current = list[idx];
+        const updated = {
+          ...current,
+          ...body,
+          active: body.active !== undefined ? (body.active ? 1 : 0) : current.active
+        };
+        list[idx] = updated;
+
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.update`,
+          entityType: model,
+          entityId: targetId,
+          createdAt: new Date().toISOString()
+        });
+
+        return jsonResponse(updated);
+      }
+
+      // DELETE /admin/master-data/:model
+      if (method === "DELETE" && !targetId) {
+        const body = await request.json<any>();
+        const ids: string[] = body?.ids || [];
+        if (!ids.length) {
+          return jsonResponse({ message: "No records selected for deletion" }, 400);
+        }
+
+        let deletedCount = 0;
+        for (const id of ids) {
+          const idx = list.findIndex(item => item.id === id);
+          if (idx !== -1) {
+            list.splice(idx, 1);
+            deletedCount++;
+          }
+        }
+
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.deleteMany`,
+          entityType: model,
+          entityId: ids.join(","),
+          createdAt: new Date().toISOString()
+        });
+
+        return jsonResponse({ deletedCount });
+      }
+    }
+
+    // 6. Admin Users: List, Create, Update, Set Active
+    if (path === "/admin/users" && method === "GET") {
+      return jsonResponse(fallbackState.users.map(({ password, ...u }) => u));
+    }
+
+    if (path === "/admin/users" && method === "POST") {
+      const body = await request.json<any>();
+      const newUser = {
+        id: uid("usr"),
+        email: body.email,
+        fullName: body.fullName,
+        role: body.role,
+        departmentId: body.departmentId,
+        active: 1,
+        password: body.password || "Password123!"
+      };
+      fallbackState.users.push(newUser);
+      const { password, ...resUser } = newUser;
+      return jsonResponse(resUser, 201);
+    }
+
+    if (path.startsWith("/admin/users/") && path.endsWith("/active") && method === "PATCH") {
+      const id = path.split("/")[3];
+      const body = await request.json<any>();
+      const userItem = fallbackState.users.find(u => u.id === id);
+      if (!userItem) return jsonResponse({ message: "User not found" }, 404);
+      userItem.active = body.active ? 1 : 0;
+      const { password, ...resUser } = userItem;
+      return jsonResponse(resUser);
+    }
+
+    if (path.startsWith("/admin/users/") && method === "PATCH") {
+      const id = path.split("/")[3];
+      const body = await request.json<any>();
+      const idx = fallbackState.users.findIndex(u => u.id === id);
+      if (idx === -1) return jsonResponse({ message: "User not found" }, 404);
+      fallbackState.users[idx] = { ...fallbackState.users[idx], ...body };
+      const { password, ...resUser } = fallbackState.users[idx];
+      return jsonResponse(resUser);
+    }
+
+    // 7. Items CRUD & Management
     if (path === "/items" && method === "GET") {
       const q = url.searchParams.get("query")?.toLowerCase() || "";
       const cat = url.searchParams.get("categoryId");
+      const activeParam = url.searchParams.get("active");
       let list = fallbackState.items;
       if (q) {
-        list = list.filter(i => i.code.toLowerCase().includes(q) || i.description.toLowerCase().includes(q));
+        list = list.filter(i => (i.code || "").toLowerCase().includes(q) || (i.description || "").toLowerCase().includes(q));
       }
       if (cat) {
         list = list.filter(i => i.categoryId === cat);
+      }
+      if (activeParam === "true") {
+        list = list.filter(i => i.active !== false && i.active !== 0);
       }
       return jsonResponse({
         items: list,
@@ -468,6 +754,72 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(newItem, 201);
     }
 
+    if (path === "/items/import" && method === "POST") {
+      return jsonResponse({
+        imported: 0,
+        count: fallbackState.items.length,
+        message: "Items imported successfully"
+      });
+    }
+
+    if (path.startsWith("/items/") && path.endsWith("/files") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const item = fallbackState.items.find(i => i.id === id);
+      if (!item) return jsonResponse({ message: "Item not found" }, 404);
+      Object.assign(item, body);
+      return jsonResponse(item);
+    }
+
+    if (path.startsWith("/items/") && path.endsWith("/deactivate") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const item = fallbackState.items.find(i => i.id === id);
+      if (!item) return jsonResponse({ message: "Item not found" }, 404);
+      item.active = false;
+      return jsonResponse(item);
+    }
+
+    if (path.startsWith("/items/") && path.endsWith("/custody") && method === "GET") {
+      const id = path.split("/")[2];
+      const records = fallbackState.assetCustody.filter(c => c.itemId === id);
+      return jsonResponse(records);
+    }
+
+    if (path.startsWith("/items/") && path.endsWith("/custody") && method === "POST") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const custody = {
+        id: uid("cst"),
+        itemId: id,
+        ...body,
+        assignedAt: body.assignedAt || new Date().toISOString(),
+        status: "ASSIGNED"
+      };
+      fallbackState.assetCustody.unshift(custody);
+      return jsonResponse(custody, 201);
+    }
+
+    if (path.startsWith("/asset-custody/") && path.endsWith("/return") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const custody = fallbackState.assetCustody.find(c => c.id === id);
+      if (!custody) return jsonResponse({ message: "Custody record not found" }, 404);
+      custody.status = "RETURNED";
+      custody.returnedAt = body.returnedAt || new Date().toISOString();
+      custody.condition = body.condition || custody.condition;
+      custody.notes = body.notes || custody.notes;
+      return jsonResponse(custody);
+    }
+
+    if (path.startsWith("/asset-custody/") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const custody = fallbackState.assetCustody.find(c => c.id === id);
+      if (!custody) return jsonResponse({ message: "Custody record not found" }, 404);
+      Object.assign(custody, body);
+      return jsonResponse(custody);
+    }
+
     if (path.startsWith("/items/") && method === "GET") {
       const id = path.split("/")[2];
       const item = fallbackState.items.find(i => i.id === id);
@@ -484,7 +836,91 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(fallbackState.items[idx]);
     }
 
-    // 6. Receipts (Model 19 / GRN)
+    // 8. Storage Locations & Stock Batches
+    if (path === "/storage-locations" && method === "GET") {
+      return jsonResponse(fallbackState.storageLocations);
+    }
+
+    if (path === "/storage-locations" && method === "POST") {
+      const body = await request.json<any>();
+      const newLoc = {
+        id: uid("loc"),
+        ...body,
+        isActive: 1,
+        createdAt: new Date().toISOString()
+      };
+      fallbackState.storageLocations.push(newLoc);
+      return jsonResponse(newLoc, 201);
+    }
+
+    if (path.startsWith("/storage-locations/") && path.endsWith("/active") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const loc = fallbackState.storageLocations.find(l => l.id === id);
+      if (!loc) return jsonResponse({ message: "Storage location not found" }, 404);
+      loc.isActive = body.active ? 1 : 0;
+      return jsonResponse(loc);
+    }
+
+    if (path.startsWith("/storage-locations/") && method === "PATCH") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const loc = fallbackState.storageLocations.find(l => l.id === id);
+      if (!loc) return jsonResponse({ message: "Storage location not found" }, 404);
+      Object.assign(loc, body);
+      return jsonResponse(loc);
+    }
+
+    if (path === "/stock-batches" && method === "GET") {
+      return jsonResponse(fallbackState.batches);
+    }
+
+    if (path.startsWith("/stock-batches/") && path.endsWith("/allocate") && method === "POST") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const batch = fallbackState.batches.find(b => b.id === id);
+      if (!batch) return jsonResponse({ message: "Batch not found" }, 404);
+      
+      const bal = fallbackState.balances.find(b => b.batchId === id);
+      if (bal) {
+        bal.storageLocationId = body.storageLocationId;
+      } else {
+        fallbackState.balances.push({
+          id: uid("bal"),
+          itemId: batch.itemId,
+          batchId: id,
+          storeId: "store-main",
+          storageLocationId: body.storageLocationId,
+          quantityOnHand: body.quantity || batch.remainingQuantity || 10,
+          quantityReserved: 0,
+          quantityAvailable: body.quantity || batch.remainingQuantity || 10,
+          unitCost: batch.unitCost || 0
+        });
+      }
+      return jsonResponse({ success: true, allocated: true });
+    }
+
+    if (path === "/location-balances" && method === "GET") {
+      return jsonResponse(fallbackState.balances);
+    }
+
+    if (path === "/ledger/balances" && method === "GET") {
+      const itemId = url.searchParams.get("itemId");
+      const locId = url.searchParams.get("locationId");
+      let list = fallbackState.balances;
+      if (itemId) list = list.filter(b => b.itemId === itemId);
+      if (locId) list = list.filter(b => b.storageLocationId === locId);
+      return jsonResponse(list);
+    }
+
+    if (path === "/ledger/movements" && method === "GET") {
+      const itemId = url.searchParams.get("itemId");
+      let list = fallbackState.ledger;
+      if (itemId) list = list.filter(l => l.itemId === itemId);
+      return jsonResponse(list);
+    }
+
+    // 9. Receipts (Model 19 / GRN)
     if (path === "/receipts" && method === "GET") {
       return jsonResponse(fallbackState.receipts);
     }
@@ -509,6 +945,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           grnId: receiptId,
           itemId: l.itemId,
           quantityReceived: Number(l.quantityReceived),
+          quantityAccepted: Number(l.quantityReceived),
+          quantityRejected: 0,
           unitPrice: Number(l.unitPrice || 0),
           batchNumber: l.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
           expiryDate: l.expiryDate,
@@ -518,7 +956,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
       fallbackState.receipts.unshift(newReceipt);
 
-      // Add to batches and balances
       for (const line of newReceipt.lines) {
         const batch = {
           id: uid("batch"),
@@ -542,7 +979,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           storageLocationId: "loc-01",
           quantityOnHand: line.quantityReceived,
           quantityReserved: 0,
-          quantityAvailable: line.quantityReceived
+          quantityAvailable: line.quantityReceived,
+          unitCost: line.unitPrice
         });
 
         fallbackState.ledger.unshift({
@@ -562,6 +1000,38 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(newReceipt, 201);
     }
 
+    if (path.startsWith("/receipts/") && path.endsWith("/submit") && method === "POST") {
+      const id = path.split("/")[2];
+      const receipt = fallbackState.receipts.find(r => r.id === id);
+      if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
+      receipt.status = "PENDING_INSPECTION";
+      return jsonResponse(receipt);
+    }
+
+    if (path.startsWith("/receipts/lines/") && path.endsWith("/inspect") && method === "POST") {
+      const lineId = path.split("/")[3];
+      const body = await request.json<any>();
+      let foundReceipt: any = null;
+      let foundLine: any = null;
+      for (const r of fallbackState.receipts) {
+        const l = (r.lines || []).find((line: any) => line.id === lineId);
+        if (l) {
+          foundReceipt = r;
+          foundLine = l;
+          break;
+        }
+      }
+      if (foundLine) {
+        foundLine.quantityVerified = Number(body.quantityVerified || 0);
+        foundLine.quantityAccepted = Number(body.quantityAccepted || 0);
+        foundLine.quantityRejected = Number(body.quantityRejected || 0);
+        foundLine.qualityStatus = body.qualityStatus || "PASS";
+        foundLine.qualityNotes = body.qualityNotes || "";
+        foundLine.rejectionReason = body.rejectionReason || "";
+      }
+      return jsonResponse(foundReceipt || { success: true });
+    }
+
     if (path.startsWith("/receipts/") && method === "GET") {
       const id = path.split("/")[2];
       const receipt = fallbackState.receipts.find(r => r.id === id);
@@ -569,20 +1039,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(receipt);
     }
 
-    // 7. Storage Locations & Stock Batches
-    if (path === "/storage-locations" && method === "GET") {
-      return jsonResponse(fallbackState.storageLocations);
-    }
-
-    if (path === "/stock-batches" && method === "GET") {
-      return jsonResponse(fallbackState.batches);
-    }
-
-    if (path === "/location-balances" && method === "GET") {
-      return jsonResponse(fallbackState.balances);
-    }
-
-    // 8. Issues (Model 22 / SIV)
+    // 10. Issues (Model 22 / SIV)
     if (path === "/issues" && method === "GET") {
       return jsonResponse(fallbackState.issues);
     }
@@ -624,7 +1081,52 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       });
     }
 
-    // 9. Returns
+    if (path.startsWith("/issues/") && path.endsWith("/approve") && method === "POST") {
+      const id = path.split("/")[2];
+      const issue = fallbackState.issues.find(i => i.id === id);
+      if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
+      issue.status = "APPROVED";
+      return jsonResponse(issue);
+    }
+
+    if (path.startsWith("/issues/") && path.endsWith("/reject") && method === "POST") {
+      const id = path.split("/")[2];
+      const issue = fallbackState.issues.find(i => i.id === id);
+      if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
+      issue.status = "REJECTED";
+      return jsonResponse(issue);
+    }
+
+    if (path.startsWith("/issues/") && path.endsWith("/issue") && method === "POST") {
+      const id = path.split("/")[2];
+      const issue = fallbackState.issues.find(i => i.id === id);
+      if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
+      issue.status = "ISSUED";
+      for (const line of issue.lines || []) {
+        fallbackState.ledger.unshift({
+          id: uid("led"),
+          itemId: line.itemId,
+          entryType: "ISSUE",
+          quantityIn: 0,
+          quantityOut: line.quantityIssued || line.quantityRequested || 1,
+          balanceAfter: 0,
+          referenceType: "SIV",
+          referenceId: issue.sivNumber,
+          createdAt: new Date().toISOString()
+        });
+      }
+      return jsonResponse(issue);
+    }
+
+    if (path.startsWith("/issues/") && path.endsWith("/receive") && method === "POST") {
+      const id = path.split("/")[2];
+      const issue = fallbackState.issues.find(i => i.id === id);
+      if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
+      issue.status = "COMPLETED";
+      return jsonResponse(issue);
+    }
+
+    // 11. Returns
     if (path === "/returns" && method === "GET") {
       return jsonResponse(fallbackState.returns);
     }
@@ -644,7 +1146,23 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse(ret, 201);
     }
 
-    // 10. Approvals & Inspections Queue
+    if (path.startsWith("/returns/") && path.endsWith("/inspect") && method === "POST") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const ret = fallbackState.returns.find(r => r.id === id);
+      if (!ret) return jsonResponse({ message: "Return not found" }, 404);
+      ret.status = body.outcome === "APPROVED" ? "ACCEPTED" : (body.outcome === "REJECTED" ? "REJECTED" : "PARTIALLY_ACCEPTED");
+      return jsonResponse(ret);
+    }
+
+    if (path.startsWith("/returns/") && method === "GET") {
+      const id = path.split("/")[2];
+      const ret = fallbackState.returns.find(r => r.id === id);
+      if (!ret) return jsonResponse({ message: "Return not found" }, 404);
+      return jsonResponse(ret);
+    }
+
+    // 12. Approvals & Inspections Queue
     if (path === "/approver/queue" && method === "GET") {
       return jsonResponse({
         pendingIssues: fallbackState.issues.filter(i => i.status === "PENDING_APPROVAL"),
@@ -664,52 +1182,100 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       });
     }
 
-    // 11. Ledger Movements
-    if (path === "/ledger/movements" && method === "GET") {
-      return jsonResponse(fallbackState.ledger);
-    }
-
-    // 12. Physical Counts & Disposals & Adjustments
+    // 13. Physical Counts & Disposals & Adjustments
     if (path === "/physical-counts" && method === "GET") {
       return jsonResponse(fallbackState.counts);
     }
 
-    if (path === "/disposals" && method === "GET") {
-      return jsonResponse(fallbackState.disposals);
+    if (path === "/physical-counts" && method === "POST") {
+      const body = await request.json<any>();
+      const count = {
+        id: uid("cnt"),
+        countNumber: `CNT-${Date.now().toString().slice(-6)}`,
+        cycleType: body.cycleType || "ANNUAL",
+        locationId: body.locationId,
+        categoryId: body.categoryId,
+        status: "OPEN",
+        openedAt: new Date().toISOString(),
+        createdById: user?.id || "usr-admin",
+        lines: []
+      };
+      fallbackState.counts.unshift(count);
+      return jsonResponse(count, 201);
+    }
+
+    if (path.startsWith("/physical-counts/") && path.endsWith("/submit") && method === "POST") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>();
+      const count = fallbackState.counts.find(c => c.id === id);
+      if (!count) return jsonResponse({ message: "Physical count not found" }, 404);
+      count.status = "COMPLETED";
+      count.submittedAt = new Date().toISOString();
+      count.lines = body.lines || count.lines;
+      return jsonResponse(count);
     }
 
     if (path === "/adjustments" && method === "GET") {
       return jsonResponse(fallbackState.adjustments);
     }
 
-    // 13. Audit Logs & Notifications
+    if (path.startsWith("/adjustments/") && path.endsWith("/approve") && method === "POST") {
+      const id = path.split("/")[2];
+      const adj = fallbackState.adjustments.find(a => a.id === id);
+      if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
+      adj.status = "APPROVED";
+      return jsonResponse(adj);
+    }
+
+    if (path.startsWith("/adjustments/") && path.endsWith("/reject") && method === "POST") {
+      const id = path.split("/")[2];
+      const adj = fallbackState.adjustments.find(a => a.id === id);
+      if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
+      adj.status = "REJECTED";
+      return jsonResponse(adj);
+    }
+
+    if (path === "/disposals" && method === "GET") {
+      return jsonResponse(fallbackState.disposals);
+    }
+
+    if (path === "/disposals" && method === "POST") {
+      const body = await request.json<any>();
+      const disp = {
+        id: uid("disp"),
+        disposalNumber: `DSP-${Date.now().toString().slice(-6)}`,
+        status: "PENDING_APPROVAL",
+        createdAt: new Date().toISOString(),
+        createdById: user?.id || "usr-admin",
+        ...body
+      };
+      fallbackState.disposals.unshift(disp);
+      return jsonResponse(disp, 201);
+    }
+
+    if (path.startsWith("/disposals/") && path.endsWith("/approve") && method === "POST") {
+      const id = path.split("/")[2];
+      const disp = fallbackState.disposals.find(d => d.id === id);
+      if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
+      disp.status = "APPROVED";
+      return jsonResponse(disp);
+    }
+
+    if (path.startsWith("/disposals/") && path.endsWith("/dispose") && method === "POST") {
+      const id = path.split("/")[2];
+      const disp = fallbackState.disposals.find(d => d.id === id);
+      if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
+      disp.status = "DISPOSED";
+      return jsonResponse(disp);
+    }
+
+    // 14. Audit Logs & Notifications
     if (path === "/audit-logs" && method === "GET") {
       return jsonResponse(fallbackState.auditLogs);
     }
 
     if (path === "/notifications" && method === "GET") {
       return jsonResponse(fallbackState.notifications);
-    }
-
-    // 14. Admin Users
-    if (path === "/admin/users" && method === "GET") {
-      return jsonResponse(fallbackState.users.map(({ password, ...u }) => u));
-    }
-
-    if (path === "/admin/users" && method === "POST") {
-      const body = await request.json<any>();
-      const newUser = {
-        id: uid("usr"),
-        email: body.email,
-        fullName: body.fullName,
-        role: body.role,
-        departmentId: body.departmentId,
-        active: 1,
-        password: body.password || "Password123!"
-      };
-      fallbackState.users.push(newUser);
-      const { password, ...resUser } = newUser;
-      return jsonResponse(resUser, 201);
     }
 
     // 15. Dashboard Overview
@@ -724,30 +1290,95 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       });
     }
 
-    // 16. Reports
+    // 16. Reports (JSON, Excel, PDF)
     if (path.startsWith("/reports/")) {
-      const type = path.split("/")[2];
-      return jsonResponse({
-        reportType: type,
-        generatedAt: new Date().toISOString(),
-        rows: fallbackState.items.map(i => ({
+      const cleanPath = path.replace(/^\/reports\//, "");
+      const isXlsx = cleanPath.endsWith(".xlsx");
+      const isPdf = cleanPath.endsWith(".pdf");
+      const type = cleanPath.replace(/\.(xlsx|pdf)$/, "");
+
+      // Generate structured report rows
+      const reportRows = fallbackState.items.map((i, idx) => {
+        const cat = fallbackState.categories.find(c => c.id === i.categoryId)?.name || "General";
+        const unit = fallbackState.unitsOfMeasure.find(u => u.id === i.unitId)?.name || "Unit";
+        const fund = fallbackState.fundingSources.find(f => f.id === i.fundingSourceId)?.name || "Treasury";
+        const bal = fallbackState.balances.find(b => b.itemId === i.id)?.quantityOnHand || 100;
+        return {
+          id: `rep-${idx + 1}`,
           code: i.code,
           description: i.description,
-          category: fallbackState.categories.find(c => c.id === i.categoryId)?.name || "General",
-          quantityOnHand: 100,
-          reorderLevel: i.reorderLevel,
-          status: "IN_STOCK"
-        }))
+          category: cat,
+          unit,
+          fundingSource: fund,
+          quantityOnHand: bal,
+          reorderLevel: i.reorderLevel || 10,
+          minimumStock: i.minimumStock || 5,
+          maximumStock: i.maximumStock || 500,
+          unitCost: 10.0,
+          totalValue: bal * 10.0,
+          status: bal > (i.reorderLevel || 10) ? "ADEQUATE" : "LOW_STOCK",
+          createdAt: i.createdAt
+        };
       });
+
+      if (isXlsx) {
+        // Return CSV representation disguised with xlsx headers for standard web client download
+        const headers = ["Item Code", "Description", "Category", "Unit", "Quantity On Hand", "Reorder Level", "Status"];
+        const csvRows = [headers.join(",")];
+        for (const row of reportRows) {
+          csvRows.push([
+            `"${row.code}"`,
+            `"${row.description.replace(/"/g, '""')}"`,
+            `"${row.category}"`,
+            `"${row.unit}"`,
+            row.quantityOnHand,
+            row.reorderLevel,
+            `"${row.status}"`
+          ].join(","));
+        }
+        return new Response(csvRows.join("\n"), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="${type}-report.xlsx"`,
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
+      }
+
+      if (isPdf) {
+        const pdfText = `FMOH INVENTORY REPORT\nType: ${type}\nGenerated: ${new Date().toISOString()}\n\n` +
+          reportRows.map(r => `${r.code} | ${r.description} | Stock: ${r.quantityOnHand}`).join("\n");
+        return new Response(pdfText, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `attachment; filename="${type}-report.pdf"`,
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
+      }
+
+      return jsonResponse(reportRows);
     }
 
-    // 17. Uploads Mock
+    // 17. Uploads Mock & Retrieval
     if (path === "/uploads" && method === "POST") {
       return jsonResponse({
         id: uid("file"),
         path: "/uploads/sample-document.pdf",
         originalName: "attachment.pdf",
         mimeType: "application/pdf"
+      });
+    }
+
+    if (path.startsWith("/uploads/") && method === "GET") {
+      return new Response("FMOH Institutional Attachment Mock Stream", {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
