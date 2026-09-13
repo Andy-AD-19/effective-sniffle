@@ -538,12 +538,17 @@ function normalizeWorkerUnit(raw: string): { symbol: string; name: string } {
 
 function enrichItem(item: any): any {
   if (!item) return item;
+  const rawId = item.id;
+  const validId = (rawId && typeof rawId === "string" && rawId.trim().length > 0)
+    ? rawId.trim()
+    : (item.code ? `item-${item.code.toLowerCase().replace(/[^a-z0-9]/g, "-")}` : uid("item"));
   const unit = fallbackState.unitsOfMeasure.find(u => u.id === item.unitId || u.symbol === item.unitSymbol || u.name === item.unit) || (item.unit && typeof item.unit === "object" ? item.unit : { id: item.unitId || "unit-ea", name: item.unit || "Each", symbol: item.unitSymbol || "ea" });
   const category = fallbackState.categories.find(c => c.id === item.categoryId) || (item.category && typeof item.category === "object" ? item.category : null);
   const fundingSource = fallbackState.fundingSources.find(f => f.id === item.fundingSourceId) || (item.fundingSource && typeof item.fundingSource === "object" ? item.fundingSource : null);
   const defaultLocation = fallbackState.stores.find(s => s.id === item.defaultLocationId) || (item.defaultLocation && typeof item.defaultLocation === "object" ? item.defaultLocation : null);
   return {
     ...item,
+    id: validId,
     unit,
     category,
     fundingSource,
@@ -952,6 +957,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       // Query D1 if available
       if (env.DB) {
         try {
+          // Self-heal any legacy items with missing/empty ID in D1
+          await env.DB.prepare("UPDATE Item SET id = 'item-' || lower(code) WHERE id IS NULL OR id = ''").run().catch(() => {});
+
           let sql = `SELECT * FROM Item WHERE 1=1`;
           const params: any[] = [];
           if (activeParam === "true") {
@@ -981,15 +989,24 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       // Synchronized fallback
+      for (const it of fallbackState.items) {
+        if (!it.id || (typeof it.id === "string" && !it.id.trim())) {
+          it.id = it.code ? `item-${it.code.toLowerCase().replace(/[^a-z0-9]/g, "-")}` : uid("item");
+        }
+      }
+
       let list = fallbackState.items;
       if (q) {
-        list = list.filter(i => (i.code || "").toLowerCase().includes(q) || (i.description || "").toLowerCase().includes(q));
+        list = list.filter(i =>
+          (i.code && i.code.toLowerCase().includes(q)) ||
+          (i.description && i.description.toLowerCase().includes(q))
+        );
       }
       if (cat) {
         list = list.filter(i => i.categoryId === cat);
       }
       if (activeParam === "true") {
-        list = list.filter(i => i.active !== false && i.active !== 0);
+        list = list.filter(i => i.active !== false);
       }
       return jsonResponse({
         items: list.map(enrichItem),
@@ -1004,9 +1021,13 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (!body.code || !body.description || !body.categoryId || !body.unitId) {
         return jsonResponse({ message: "Code, description, category, and unit are required." }, 400);
       }
+      const { id: rawId, ...itemData } = body;
+      const assignedId = (rawId && typeof rawId === "string" && rawId.trim().length > 0)
+        ? rawId.trim()
+        : (body.code ? `item-${body.code.toLowerCase().replace(/[^a-z0-9]/g, "-")}` : uid("item"));
       const newItem = {
-        id: body.id || uid("item"),
-        ...body,
+        ...itemData,
+        id: assignedId,
         active: body.active !== undefined ? body.active : true,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
@@ -1034,6 +1055,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
               calibrationDueDate, active, createdAt, updatedAt
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
             ON CONFLICT(code) DO UPDATE SET
+              id = CASE WHEN Item.id IS NULL OR Item.id = '' THEN excluded.id ELSE Item.id END,
               description = excluded.description,
               kind = excluded.kind,
               categoryId = excluded.categoryId,
@@ -1475,9 +1497,10 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path === "/storage-locations" && method === "POST") {
       const body = await request.json<any>();
+      const { id: rawLocId, ...locData } = body;
       const newLoc = {
-        id: uid("loc"),
-        ...body,
+        ...locData,
+        id: (rawLocId && typeof rawLocId === "string" && rawLocId.trim()) ? rawLocId.trim() : uid("loc"),
         isActive: 1,
         createdAt: new Date().toISOString()
       };
@@ -1572,18 +1595,22 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         status: "ACCEPTED",
         receivedAt: new Date().toISOString(),
         createdById: user?.id || "usr-admin",
-        lines: (body.lines || []).map((l: any) => ({
-          id: uid("line"),
-          grnId: receiptId,
-          itemId: l.itemId,
-          quantityReceived: Number(l.quantityReceived),
-          quantityAccepted: Number(l.quantityReceived),
-          quantityRejected: 0,
-          unitPrice: Number(l.unitPrice || 0),
-          batchNumber: l.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
-          expiryDate: l.expiryDate,
-          remarks: l.remarks
-        }))
+        lines: (body.lines || []).map((l: any) => {
+          const resolvedItem = fallbackState.items.find(i => i.id === l.itemId || (i.code && i.code.toLowerCase() === String(l.itemId).toLowerCase()));
+          const actualItemId = resolvedItem ? resolvedItem.id : l.itemId;
+          return {
+            id: uid("line"),
+            grnId: receiptId,
+            itemId: actualItemId,
+            quantityReceived: Number(l.quantityReceived),
+            quantityAccepted: Number(l.quantityReceived),
+            quantityRejected: 0,
+            unitPrice: Number(l.unitPrice || 0),
+            batchNumber: l.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
+            expiryDate: l.expiryDate,
+            remarks: l.remarks
+          };
+        })
       };
 
       fallbackState.receipts.unshift(newReceipt);
@@ -1873,13 +1900,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path === "/disposals" && method === "POST") {
       const body = await request.json<any>();
+      const { id: rawDispId, ...dispData } = body;
       const disp = {
-        id: uid("disp"),
+        ...dispData,
+        id: (rawDispId && typeof rawDispId === "string" && rawDispId.trim()) ? rawDispId.trim() : uid("disp"),
         disposalNumber: `DSP-${Date.now().toString().slice(-6)}`,
         status: "PENDING_APPROVAL",
         createdAt: new Date().toISOString(),
-        createdById: user?.id || "usr-admin",
-        ...body
+        createdById: user?.id || "usr-admin"
       };
       fallbackState.disposals.unshift(disp);
       return jsonResponse(disp, 201);

@@ -1017,25 +1017,33 @@ async function request<T>(
 
 	// Persistent synchronization for Items across ephemeral worker isolates
 	try {
-		if (path === '/items' && init?.method === 'POST' && result && typeof result === 'object' && result.id) {
+		if (path === '/items' && init?.method === 'POST' && result && typeof result === 'object' && (result.id || result.code)) {
+			const itemId = (result.id && typeof result.id === 'string' && result.id.trim()) ? result.id.trim() : (result.code ? `item-${result.code}` : '')
+			const normalized = { ...result, id: itemId }
 			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
 			const existingIndex = stored.findIndex(
-				(i: any) => i.id === result.id || (i.code && i.code.toLowerCase() === result.code?.toLowerCase())
+				(i: any) => (i.id && i.id === normalized.id) || (i.code && i.code.toLowerCase() === normalized.code?.toLowerCase())
 			)
 			if (existingIndex >= 0) {
-				stored[existingIndex] = { ...stored[existingIndex], ...result }
+				stored[existingIndex] = { ...stored[existingIndex], ...normalized }
 			} else {
-				stored.unshift(result)
+				stored.unshift(normalized)
 			}
 			await writeStoredValue('fmoh-persisted-registered-items', stored)
-		} else if (path.startsWith('/items/') && init?.method === 'PATCH' && result && typeof result === 'object' && result.id) {
+		} else if (path.startsWith('/items/') && init?.method === 'PATCH' && result && typeof result === 'object' && (result.id || result.code)) {
+			const itemId = (result.id && typeof result.id === 'string' && result.id.trim()) ? result.id.trim() : (result.code ? `item-${result.code}` : '')
+			const normalized = { ...result, id: itemId }
 			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
-			const idx = stored.findIndex((i: any) => i.id === result.id)
+			const idx = stored.findIndex((i: any) => (i.id && i.id === normalized.id) || (i.code && i.code.toLowerCase() === normalized.code?.toLowerCase()))
 			if (idx >= 0) {
-				stored[idx] = { ...stored[idx], ...result }
+				stored[idx] = { ...stored[idx], ...normalized }
 				await writeStoredValue('fmoh-persisted-registered-items', stored)
 			}
 		} else if (path.startsWith('/items') && (!init || !init.method || init.method === 'GET') && result && Array.isArray(result.items)) {
+			result.items = result.items.map((i: any) => ({
+				...i,
+				id: (i.id && typeof i.id === 'string' && i.id.trim()) ? i.id.trim() : (i.code ? `item-${i.code.toLowerCase().replace(/[^a-z0-9]/g, '-')}` : '')
+			}))
 			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
 			if (stored.length > 0) {
 				const serverIds = new Set(result.items.map((i: any) => i.id))
@@ -3646,7 +3654,7 @@ function BinCardRoute({ token }: { token: string }) {
 						value={selectedId}
 						onChange={(value) => setSelectedId(value)}
 						options={items.map((item) => ({
-							value: item.id,
+							value: item.id || item.code,
 							label: `${item.code} - ${item.description}`,
 						}))}
 						placeholder='Select item'
@@ -4041,8 +4049,10 @@ function Items({ token, user }: { token: string; user: User }) {
 		setSaving(true)
 		setMessage('')
 		try {
+			const { id: formId, ...cleanForm } = form
 			const body = {
-				...form,
+				...cleanForm,
+				...(form.id ? { id: form.id } : {}),
 				reorderLevel: isReorderRequired || (isReorderOptional && form.reorderLevel !== '') ? reorder : 0,
 				minimumStock: isReorderRequired || (isReorderOptional && form.minimumStock !== '') ? minimum : 0,
 				maximumStock: isReorderRequired || (isReorderOptional && form.maximumStock !== '') ? maximum : 0,
@@ -5434,7 +5444,7 @@ function Receiving({
 				current.supplierDonorId || suppliersList[0]?.id || '',
 			lines: current.lines.map((line: any) => ({
 				...line,
-				itemId: line.itemId || itemData.items?.[0]?.id || '',
+				itemId: line.itemId || itemData.items?.find((i: any) => i.id)?.id || itemData.items?.[0]?.code || '',
 				fundingSourceId:
 					line.fundingSourceId || masterData.fundingSources?.[0]?.id || '',
 			})),
@@ -5451,7 +5461,7 @@ function Receiving({
 		return () => {
 			window.removeEventListener('fmoh-master-data-updated', onMasterUpdated)
 		}
-	}, [token, filters])
+	}, [token])
 
 	async function openModel19(receiptId: string) {
 		setLoadingAction(`m19-${receiptId}`)
@@ -5479,29 +5489,29 @@ function Receiving({
 			notify('warning', 'Select a supplier or donor before creating the GRN.')
 			return
 		}
-		if (form.lines.some((line: any) => !line.itemId)) {
+		if (form.lines.some((line: any) => !line.itemId || !String(line.itemId).trim())) {
 			setMessage('Select an item for every received line.')
 			notify('warning', 'Select an item for every received line.')
 			return
 		}
 		const missingBatchLine = form.lines.find((line: any) => {
-			const item = items.find((i) => i.id === line.itemId)
+			const item = items.find((i) => i.id === line.itemId || i.code === line.itemId)
 			const isBatchRequired = item?.kind === 'CONSUMABLE' || Boolean(item?.batchTrackingRequired)
 			return isBatchRequired && !line.batchNumber?.trim()
 		})
 		if (missingBatchLine) {
-			const item = items.find((i) => i.id === missingBatchLine.itemId)
+			const item = items.find((i) => i.id === missingBatchLine.itemId || i.code === missingBatchLine.itemId)
 			setMessage(`Batch/Lot number is required for ${item?.code || 'received item'}.`)
 			notify('warning', `Batch/Lot number is required for ${item?.code || 'received item'}.`)
 			return
 		}
 		const missingExpiryLine = form.lines.find((line: any) => {
-			const item = items.find((i) => i.id === line.itemId)
+			const item = items.find((i) => i.id === line.itemId || i.code === line.itemId)
 			const isExpiryRequired = item?.kind === 'CONSUMABLE' || Boolean(item?.expiryTrackingRequired)
 			return isExpiryRequired && !line.expiryDate
 		})
 		if (missingExpiryLine) {
-			const item = items.find((i) => i.id === missingExpiryLine.itemId)
+			const item = items.find((i) => i.id === missingExpiryLine.itemId || i.code === missingExpiryLine.itemId)
 			setMessage(`Expiry date is required for ${item?.code || 'received item'}.`)
 			notify('warning', `Expiry date is required for ${item?.code || 'received item'}.`)
 			return
@@ -5537,14 +5547,18 @@ function Receiving({
 				method: 'POST',
 				body: JSON.stringify({
 					...form,
-					lines: form.lines.map((line: any) => ({
-						...line,
-						quantityReceived: Number(line.quantityReceived),
-						unitPrice: Number(line.unitPrice),
-						batchNumber: line.batchNumber || undefined,
-						expiryDate: line.expiryDate || undefined,
-						remarks: line.remarks || undefined,
-					})),
+					lines: form.lines.map((line: any) => {
+						const resolved = items.find((i: any) => i.id === line.itemId || i.code === line.itemId)
+						return {
+							...line,
+							itemId: resolved?.id || line.itemId,
+							quantityReceived: Number(line.quantityReceived),
+							unitPrice: Number(line.unitPrice),
+							batchNumber: line.batchNumber || undefined,
+							expiryDate: line.expiryDate || undefined,
+							remarks: line.remarks || undefined,
+						}
+					}),
 				}),
 			})
 			setMessage('Draft GRN created. Submit it for inspection when ready.')
@@ -5639,7 +5653,7 @@ function Receiving({
 			lines: [
 				...current.lines,
 				{
-					itemId: items[0]?.id || '',
+					itemId: items.find((i: any) => i.id)?.id || items[0]?.code || '',
 					quantityReceived: '',
 					unitPrice: '',
 					batchNumber: '',
@@ -5763,7 +5777,7 @@ function Receiving({
 							/>
 						</div>
 						{form.lines.map((line: any, index: number) => {
-							const selectedItem = items.find((i) => i.id === line.itemId)
+							const selectedItem = items.find((i) => i.id === line.itemId || i.code === line.itemId)
 							const isFixedOrDispensable = selectedItem?.kind === 'FIXED_ASSET' || selectedItem?.kind === 'DISPENSABLE_ASSET'
 							const isBatchRequired = selectedItem?.kind === 'CONSUMABLE' || Boolean(selectedItem?.batchTrackingRequired)
 							const isExpiryRequired = selectedItem?.kind === 'CONSUMABLE' || Boolean(selectedItem?.expiryTrackingRequired)
@@ -5786,7 +5800,7 @@ function Receiving({
 											value={line.itemId}
 											onChange={(value) => updateLine(index, { itemId: value })}
 											options={items.map((item) => ({
-												value: item.id,
+												value: item.id || item.code,
 												label: `${item.code} - ${item.description}`,
 											}))}
 											placeholder={
@@ -6985,7 +6999,7 @@ function Issuance({ token, user }: { token: string; user: User }) {
 		setItems(itemData.items ?? [])
 		setForm((current) => ({
 			...current,
-			itemId: current.itemId || itemData.items?.[0]?.id || '',
+			itemId: current.itemId || itemData.items?.find((i: any) => i.id)?.id || itemData.items?.[0]?.code || '',
 			departmentName:
 				current.departmentName ||
 				user.department?.name ||
@@ -7002,7 +7016,8 @@ function Issuance({ token, user }: { token: string; user: User }) {
 
 	async function createIssue(event: React.FormEvent) {
 		event.preventDefault()
-		const itemId = form.itemId
+		const resolvedItem = items.find((i: any) => i.id === form.itemId || i.code === form.itemId)
+		const itemId = resolvedItem?.id || form.itemId
 		const department = master?.departments?.find(
 			(row: any) =>
 				row.name.toLowerCase() === form.departmentName.trim().toLowerCase()
@@ -7124,7 +7139,7 @@ function Issuance({ token, user }: { token: string; user: User }) {
 						value={form.itemId}
 						onChange={(value) => setForm({ ...form, itemId: value })}
 						options={items.map((item) => ({
-							value: item.id,
+							value: item.id || item.code,
 							label: `${item.code} - ${item.description}`,
 						}))}
 						placeholder='Select requested item'
