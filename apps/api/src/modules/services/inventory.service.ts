@@ -166,20 +166,87 @@ export class InventoryService {
     let updated = 0;
     let skipped = 0;
 
-    for (let rowNumber = 17; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    // 1. Detect Header Row
+    let headerRowIndex = -1;
+    const columnMap: Record<string, number> = {};
+
+    for (let r = 1; r <= Math.min(30, sheet.rowCount); r++) {
+      const row = sheet.getRow(r);
+      const headers: { col: number; text: string }[] = [];
+      row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+        const val = this.importText(cell.value);
+        const norm = val.toLowerCase().replace(/[^a-z0-9\u1200-\u137F]/g, " ").replace(/\s+/g, " ").trim();
+        if (norm) headers.push({ col: colNumber, text: norm });
+      });
+
+      const hasDesc = headers.some((h) => /item desc|description|የ ዕ ቃ|ዕቃ.*መግለጫ|መግለጫ/i.test(h.text));
+      const hasSerialOrPart = headers.some((h) => /s\s*n|part number|serial|code/i.test(h.text));
+      const hasQtyOrUnit = headers.some((h) => /qty|quantity|unit|መለኪያ|ብዛት/i.test(h.text));
+
+      if (hasDesc && (hasSerialOrPart || hasQtyOrUnit)) {
+        headerRowIndex = r;
+        headers.forEach((h) => {
+          const text = h.text;
+          if (/item desc|description|መግለጫ/i.test(text)) columnMap["description"] = h.col;
+          else if (/part number|part no|የመለዋወጫ ቁጥር/i.test(text)) columnMap["partNumber"] = h.col;
+          else if (/^s\s*n$|serial|ተ\s*ቁ/i.test(text)) columnMap["serial"] = h.col;
+          else if (/unit\s*price|unit\s*cost|ዋጋ/i.test(text)) columnMap["unitPrice"] = h.col;
+          else if (/unit of measure|uom|^unit$|መለኪያ/i.test(text)) columnMap["unit"] = h.col;
+          else if (/final r[o|e]prt qty|report qty|quantity|^qty$|ብዛት/i.test(text)) columnMap["quantity"] = h.col;
+          else if (/phy[s|i]cal bal|physical balance|physical count/i.test(text)) columnMap["physicalBalance"] = h.col;
+          else if (/source of fund|funding|fund|የገንዘብ ምንጭ/i.test(text)) columnMap["fundingSource"] = h.col;
+        });
+        break;
+      }
+    }
+
+    if (headerRowIndex === -1) {
+      headerRowIndex = 13;
+      columnMap["serial"] = 1;
+      columnMap["description"] = 2;
+      columnMap["partNumber"] = 3;
+      columnMap["unit"] = 4;
+      columnMap["quantity"] = 5;
+      columnMap["physicalBalance"] = 11;
+      columnMap["unitPrice"] = 13;
+      columnMap["fundingSource"] = 15;
+    }
+
+    // 2. Find first data row (skipping sub-headers & blank spacers)
+    let firstDataRow = headerRowIndex + 1;
+    if (firstDataRow <= sheet.rowCount) {
+      const nextRow = sheet.getRow(firstDataRow);
+      const c1 = this.importText(nextRow.getCell(columnMap["serial"] || 1).value).toLowerCase();
+      if (c1 === "s n" || c1 === "serial" || c1 === "s/n" || (c1 && !/^\d+$/.test(c1))) {
+        firstDataRow++;
+      }
+    }
+    while (firstDataRow <= sheet.rowCount) {
+      const row = sheet.getRow(firstDataRow);
+      const desc = this.importText(row.getCell(columnMap["description"] || 2).value);
+      const serial = this.importText(row.getCell(columnMap["serial"] || 1).value);
+      if (desc || (serial && /^\d+$/.test(serial))) {
+        break;
+      }
+      firstDataRow++;
+    }
+
+    for (let rowNumber = firstDataRow; rowNumber <= sheet.rowCount; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
-      const serial = this.importText(row.getCell(1).value);
-      const description = this.importText(row.getCell(2).value);
-      if (!/^\d+$/.test(serial) || !description || /^total\b/i.test(description)) {
+      const serial = this.importText(row.getCell(columnMap["serial"] || 1).value);
+      const description = this.importText(row.getCell(columnMap["description"] || 2).value);
+      if (/^total\b/i.test(serial) || /^total\b/i.test(description)) break;
+      if (/የቆጠራ ኮሚቴ/i.test(description) || /committee/i.test(description)) break;
+      if (!description) {
         skipped += 1;
         continue;
       }
-      const partNumber = this.importText(row.getCell(3).value);
-      const unitInfo = this.normalizeImportUnit(this.importText(row.getCell(4).value));
-      const finalReportQuantity = this.importNumber(row.getCell(5).value);
-      const physicalBalance = this.importNumber(row.getCell(11).value);
-      const unitPrice = this.importNumber(row.getCell(13).value);
-      const sourceOfFund = this.importText(row.getCell(15).value) || "Federal Allocation";
+      const partNumber = this.importText(row.getCell(columnMap["partNumber"] || 3).value);
+      const unitInfo = this.normalizeImportUnit(this.importText(row.getCell(columnMap["unit"] || 4).value));
+      const finalReportQuantity = this.importNumber(row.getCell(columnMap["quantity"] || 5).value);
+      const physicalBalance = this.importNumber(row.getCell(columnMap["physicalBalance"] || 11).value);
+      const unitPrice = this.importNumber(row.getCell(columnMap["unitPrice"] || 13).value);
+      const sourceOfFund = this.importText(row.getCell(columnMap["fundingSource"] || 15).value) || "Federal Allocation";
       const baseCode = this.cleanImportCode(partNumber || serial, `MIHRET-${String(serial).padStart(4, "0")}`);
       const candidateCode = seenBaseCodes.has(baseCode) ? `${baseCode}-${serial}` : baseCode;
       const code = existingByCode.has(candidateCode) ? candidateCode : this.uniqueImportCode(candidateCode, usedCodes);
@@ -558,6 +625,11 @@ export class InventoryService {
   }
 
   private importNumber(value: unknown) {
+    if (value && typeof value === "object") {
+      if ("result" in (value as any) && (value as any).result !== null && (value as any).result !== undefined) {
+        value = (value as any).result;
+      }
+    }
     const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
     return Number.isFinite(parsed) ? parsed : 0;
   }
@@ -570,10 +642,15 @@ export class InventoryService {
 
   private normalizeImportUnit(raw: string) {
     const value = raw.trim();
-    if (/^each$/i.test(value)) return { symbol: "ea", name: "Each" };
-    if (/^pcs?$/i.test(value)) return { symbol: "pc", name: "Piece" };
-    if (/^packs?$/i.test(value)) return { symbol: "pack", name: "Pack" };
-    return { symbol: value || "ea", name: value || "Each" };
+    if (/^(each|ea)$/i.test(value)) return { symbol: "ea", name: "Each" };
+    if (/^(pcs?|piece)$/i.test(value)) return { symbol: "pc", name: "Piece" };
+    if (/^(packs?)$/i.test(value)) return { symbol: "pack", name: "Pack" };
+    if (/^(ሴት|set)$/i.test(value)) return { symbol: "set", name: "Set" };
+    if (/^(box|boxes)$/i.test(value)) return { symbol: "box", name: "Box" };
+    if (/^(roll|rolls)$/i.test(value)) return { symbol: "roll", name: "Roll" };
+    if (/^(bottle|btl)$/i.test(value)) return { symbol: "btl", name: "Bottle" };
+    if (/^(vial|vials)$/i.test(value)) return { symbol: "vial", name: "Vial" };
+    return { symbol: value.slice(0, 10) || "ea", name: value || "Each" };
   }
 
   private uniqueImportCode(base: string, usedCodes: Set<string>) {
