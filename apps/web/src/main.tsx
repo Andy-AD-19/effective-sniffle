@@ -2852,7 +2852,7 @@ function UsersPage({ token }: { token: string }) {
 		fullName: '',
 		role: 'DEPARTMENT_USER',
 		departmentId: '',
-		password: 'Password123!',
+		password: '',
 		active: true,
 	}
 	const [form, setForm] = useState<any>(emptyUserForm)
@@ -2979,6 +2979,7 @@ function UsersPage({ token }: { token: string }) {
 					<option value='STOREKEEPER'>Storekeeper</option>
 					<option value='DEPARTMENT_USER'>Department User</option>
 					<option value='APPROVER'>Approver</option>
+					<option value='INSPECTOR'>Inspector</option>
 					<option value='VIEWER_AUDITOR'>Viewer/Auditor</option>
 				</select>
 				<select
@@ -2994,10 +2995,13 @@ function UsersPage({ token }: { token: string }) {
 					))}
 				</select>
 				<input
+					type='password'
 					className='rounded border border-border bg-background px-3 py-2 text-sm'
-					placeholder='Password'
+					placeholder={form.id ? 'Password (leave blank to keep)' : 'Password (min 8 chars) *'}
 					value={form.password}
 					onChange={(e) => setForm({ ...form, password: e.target.value })}
+					required={!form.id}
+					minLength={form.id ? undefined : 8}
 				/>
 				<label className='option-field'>
 					<input
@@ -3114,28 +3118,51 @@ function MasterDataPage({ token }: { token: string }) {
 	const [model, setModel] = useState('category')
 	const [rows, setRows] = useState<any[]>([])
 	const [name, setName] = useState('')
+	const [code, setCode] = useState('')
+	const [symbol, setSymbol] = useState('')
+	const [description, setDescription] = useState('')
+	const [contact, setContact] = useState('')
+	const [supplierType, setSupplierType] = useState('PROCUREMENT')
+	const [showInactive, setShowInactive] = useState(false)
 	const [message, setMessage] = useState('')
 	const [saving, setSaving] = useState(false)
 	const supportsActive = model !== 'unitOfMeasure'
 	const load = () =>
 		request<any[]>(`/admin/master-data/${model}`, token).then((items) =>
-			setRows(items.filter((item) => item.active !== false))
+			setRows(items ?? [])
 		)
 	useEffect(() => {
+		setName('')
+		setCode('')
+		setSymbol('')
+		setDescription('')
+		setContact('')
 		load().catch((err) =>
 			setMessage(errorMessage(err, 'Unable to load configuration records.'))
 		)
 	}, [model, token])
+
 	async function create(event: React.FormEvent) {
 		event.preventDefault()
 		setSaving(true)
 		try {
 			await request(`/admin/master-data/${model}`, token, {
 				method: 'POST',
-				body: JSON.stringify({ name }),
+				body: JSON.stringify({
+					name: name.trim(),
+					code: code.trim() || undefined,
+					symbol: symbol.trim() || undefined,
+					description: description.trim() || undefined,
+					contact: contact.trim() || undefined,
+					type: model === 'supplierDonor' ? supplierType : undefined,
+				}),
 			})
 			setName('')
-			setMessage('Master data saved.')
+			setCode('')
+			setSymbol('')
+			setDescription('')
+			setContact('')
+			setMessage('Configuration record saved.')
 			notify('success', 'Configuration record saved.')
 			await load()
 		} catch (err) {
@@ -3219,6 +3246,9 @@ function MasterDataPage({ token }: { token: string }) {
 			setSaving(false)
 		}
 	}
+
+	const visibleRows = rows.filter((r) => showInactive || r.active !== false)
+
 	return (
 		<Panel title='Configuration'>
 			<div className='mb-4 flex flex-wrap gap-2'>
@@ -3235,17 +3265,62 @@ function MasterDataPage({ token }: { token: string }) {
 					</button>
 				))}
 			</div>
-			<form onSubmit={create} className='mb-4 flex gap-3'>
+			<form onSubmit={create} className='mb-4 flex flex-wrap gap-2.5 items-center'>
 				<input
-					className='w-80 rounded border border-border bg-background px-3 py-2 text-sm'
-					placeholder='Name'
+					className='w-64 rounded border border-border bg-background px-3 py-2 text-sm'
+					placeholder='Name *'
 					value={name}
 					onChange={(e) => setName(e.target.value)}
 					required
 				/>
+				{model === 'unitOfMeasure' && (
+					<input
+						className='w-36 rounded border border-border bg-background px-3 py-2 text-sm'
+						placeholder='Symbol (e.g. ea, kg) *'
+						value={symbol}
+						onChange={(e) => setSymbol(e.target.value)}
+						required
+					/>
+				)}
+				{(model === 'storeLocation' || model === 'department') && (
+					<input
+						className='w-36 rounded border border-border bg-background px-3 py-2 text-sm'
+						placeholder='Code (e.g. LOG)'
+						value={code}
+						onChange={(e) => setCode(e.target.value)}
+					/>
+				)}
+				{model === 'supplierDonor' && (
+					<>
+						<select
+							className='rounded border border-border bg-background px-3 py-2 text-sm'
+							value={supplierType}
+							onChange={(e) => setSupplierType(e.target.value)}
+						>
+							<option value='PROCUREMENT'>Procurement</option>
+							<option value='DONATION'>Donation</option>
+							<option value='GOVERNMENT_ALLOCATION'>Government Allocation</option>
+							<option value='PROJECT_SUPPORT'>Project Support</option>
+						</select>
+						<input
+							className='w-48 rounded border border-border bg-background px-3 py-2 text-sm'
+							placeholder='Contact info'
+							value={contact}
+							onChange={(e) => setContact(e.target.value)}
+						/>
+					</>
+				)}
+				{(model === 'category' || model === 'disposalReason') && (
+					<input
+						className='w-64 rounded border border-border bg-background px-3 py-2 text-sm'
+						placeholder='Description'
+						value={description}
+						onChange={(e) => setDescription(e.target.value)}
+					/>
+				)}
 				<button
 					disabled={saving}
-					className='rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60'
+					className='rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60'
 				>
 					<LoadingInline
 						loading={saving}
@@ -3254,34 +3329,78 @@ function MasterDataPage({ token }: { token: string }) {
 					/>
 				</button>
 			</form>
+
+			{supportsActive && (
+				<label className='mb-3 inline-flex items-center gap-2 text-xs text-muted-foreground'>
+					<input
+						type='checkbox'
+						checked={showInactive}
+						onChange={(e) => setShowInactive(e.target.checked)}
+					/>{' '}
+					Show deactivated records
+				</label>
+			)}
+
 			{message && (
 				<p className='mb-3 rounded border border-border bg-muted px-3 py-2 text-sm'>
 					{message}
 				</p>
 			)}
 			<DataTable
-				rows={rows}
+				rows={visibleRows}
 				columns={[
 					{ key: 'name', label: 'Name' },
-					{ key: 'code', label: 'Code' },
-					{ key: 'symbol', label: 'Symbol' },
+					...(model === 'storeLocation' || model === 'department'
+						? [{ key: 'code', label: 'Code' }]
+						: []),
+					...(model === 'unitOfMeasure'
+						? [{ key: 'symbol', label: 'Symbol' }]
+						: []),
+					...(model === 'supplierDonor'
+						? [
+								{ key: 'type', label: 'Type' },
+								{ key: 'contact', label: 'Contact', render: (row: any) => row.contact || 'N/A' },
+							]
+						: []),
+					...(model === 'category' || model === 'disposalReason'
+						? [{ key: 'description', label: 'Description', render: (row: any) => row.description || 'N/A' }]
+						: []),
 					{
 						key: 'active',
-						label: 'Active',
-						render: (row) => (row.active === undefined ? 'Always' : 'Yes'),
+						label: 'Status',
+						render: (row) =>
+							row.active === false ? (
+								<span className='rounded bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 text-xs font-medium'>
+									Deactivated
+								</span>
+							) : (
+								<span className='rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 text-xs font-medium'>
+									Active
+								</span>
+							),
 					},
 					{
 						key: 'action',
 						label: 'Action',
 						render: (row) =>
 							supportsActive ? (
-								<button
-									className='inline-flex items-center gap-2 rounded border border-border px-2 py-1 text-xs disabled:opacity-60'
-									disabled={saving}
-									onClick={() => toggleActive(row)}
-								>
-									<X size={13} /> Deactivate
-								</button>
+								row.active === false ? (
+									<button
+										className='inline-flex items-center gap-1.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-60'
+										disabled={saving}
+										onClick={() => toggleActive(row)}
+									>
+										<CheckCircle2 size={13} /> Restore
+									</button>
+								) : (
+									<button
+										className='inline-flex items-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-60'
+										disabled={saving}
+										onClick={() => toggleActive(row)}
+									>
+										<X size={13} /> Deactivate
+									</button>
+								)
 							) : (
 								<span className='text-xs text-muted-foreground'>
 									In use by items
@@ -7940,17 +8059,23 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 		}
 	}
 
-	async function handleDisposalDecision(id: string) {
-		setActionLoading(`disp-${id}-approve`)
+	async function handleDisposalDecision(id: string, decision: 'approve' | 'reject') {
+		let reason = 'Disposal approved by Approver'
+		if (decision === 'reject') {
+			const promptReason = window.prompt('Enter reason for rejecting this disposal request:')
+			if (promptReason === null) return
+			reason = promptReason.trim() || 'Disposal request rejected by Approver'
+		}
+		setActionLoading(`disp-${id}-${decision}`)
 		try {
-			await request(`/disposals/${id}/approve`, token, {
+			await request(`/disposals/${id}/${decision}`, token, {
 				method: 'POST',
-				body: JSON.stringify({ notes: 'Disposal approved by Approver' }),
+				body: JSON.stringify({ notes: reason, reason }),
 			})
-			notify('success', 'Disposal request approved.')
+			notify(decision === 'approve' ? 'success' : 'warning', `Disposal request ${decision}d.`)
 			load()
 		} catch (err) {
-			notify('error', errorMessage(err, 'Unable to approve disposal.'))
+			notify('error', errorMessage(err, `Unable to ${decision} disposal.`))
 		} finally {
 			setActionLoading('')
 		}
@@ -8142,13 +8267,22 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 								key: 'actions',
 								label: 'Decision',
 								render: (row) => (
-									<button
-										disabled={actionLoading === `disp-${row.id}-approve`}
-										className='inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60'
-										onClick={() => handleDisposalDecision(row.id)}
-									>
-										<LoadingInline loading={actionLoading === `disp-${row.id}-approve`} label='Approve Disposal' loadingLabel='Approving...' />
-									</button>
+									<div className='flex gap-2'>
+										<button
+											disabled={actionLoading === `disp-${row.id}-approve`}
+											className='inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60'
+											onClick={() => handleDisposalDecision(row.id, 'approve')}
+										>
+											<LoadingInline loading={actionLoading === `disp-${row.id}-approve`} label='Approve' loadingLabel='Approving...' />
+										</button>
+										<button
+											disabled={actionLoading === `disp-${row.id}-reject`}
+											className='inline-flex items-center gap-1 rounded border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 disabled:opacity-60'
+											onClick={() => handleDisposalDecision(row.id, 'reject')}
+										>
+											<LoadingInline loading={actionLoading === `disp-${row.id}-reject`} label='Reject' loadingLabel='Rejecting...' />
+										</button>
+									</div>
 								),
 							},
 						]}
@@ -8156,6 +8290,151 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 				</Panel>
 			)}
 		</section>
+	)
+}
+
+function InspectGrnLineModal({
+	token,
+	line,
+	onClose,
+}: {
+	token: string
+	line: any
+	onClose: () => void
+}) {
+	const received = Number(line.quantityReceived ?? 0)
+	const [accepted, setAccepted] = useState(received)
+	const [rejected, setRejected] = useState(0)
+	const [qualityStatus, setQualityStatus] = useState<'PASS' | 'PARTIAL' | 'FAIL'>('PASS')
+	const [qualityNotes, setQualityNotes] = useState('')
+	const [rejectionReason, setRejectionReason] = useState('')
+	const [loading, setLoading] = useState(false)
+	const [message, setMessage] = useState('')
+
+	function handleAcceptedChange(val: number) {
+		const newAccepted = Math.max(0, Math.min(received, isNaN(val) ? 0 : val))
+		setAccepted(newAccepted)
+		const newRejected = received - newAccepted
+		setRejected(newRejected)
+		if (newRejected === 0) setQualityStatus('PASS')
+		else if (newAccepted === 0) setQualityStatus('FAIL')
+		else setQualityStatus('PARTIAL')
+	}
+
+	async function handleSubmit(e: React.FormEvent) {
+		e.preventDefault()
+		if (rejected > 0 && !rejectionReason.trim()) {
+			setMessage('Rejection reason is mandatory when quantity is rejected.')
+			return
+		}
+		setLoading(true)
+		setMessage('')
+		try {
+			await request(`/receipts/lines/${line.id}/inspect`, token, {
+				method: 'POST',
+				body: JSON.stringify({
+					quantityVerified: received,
+					quantityAccepted: accepted,
+					quantityRejected: rejected,
+					qualityStatus,
+					qualityNotes: qualityNotes.trim() || undefined,
+					rejectionReason: rejected > 0 ? rejectionReason.trim() : undefined,
+				}),
+			})
+			notify('success', `GRN line inspection completed: ${accepted} accepted, ${rejected} rejected.`)
+			onClose()
+		} catch (err) {
+			const msg = errorMessage(err, 'Unable to complete GRN line inspection.')
+			setMessage(msg)
+			notify('error', msg)
+		} finally {
+			setLoading(false)
+		}
+	}
+
+	return (
+		<Modal title={`Quality Inspection: GRN ${line.grn?.grnNumber ?? ''}`} onClose={onClose}>
+			<form onSubmit={handleSubmit} className='space-y-4'>
+				<div className='rounded-lg border border-border bg-background/50 p-3 text-xs space-y-1.5'>
+					<p><span className='font-semibold text-muted-foreground'>Item:</span> {line.item?.code} - {line.item?.description}</p>
+					<p><span className='font-semibold text-muted-foreground'>Quantity Delivered:</span> {received} units</p>
+					{line.batchNumber && <p><span className='font-semibold text-muted-foreground'>Batch:</span> {line.batchNumber}</p>}
+					{line.expiryDate && <p><span className='font-semibold text-muted-foreground'>Expiry:</span> {new Date(line.expiryDate).toLocaleDateString()}</p>}
+				</div>
+				{message && <p className='rounded bg-rose-500/10 border border-rose-500/30 p-2 text-xs text-rose-400'>{message}</p>}
+				<div className='grid grid-cols-2 gap-3'>
+					<div>
+						<label className='block text-xs font-medium text-muted-foreground mb-1'>Quantity Accepted</label>
+						<input
+							type='number'
+							min='0'
+							max={received}
+							className='w-full rounded border border-border bg-background px-3 py-2 text-sm'
+							value={accepted}
+							onChange={(e) => handleAcceptedChange(Number(e.target.value))}
+							required
+						/>
+					</div>
+					<div>
+						<label className='block text-xs font-medium text-muted-foreground mb-1'>Quantity Rejected</label>
+						<input
+							type='number'
+							min='0'
+							max={received}
+							className='w-full rounded border border-border bg-background px-3 py-2 text-sm'
+							value={rejected}
+							readOnly
+						/>
+					</div>
+				</div>
+				<div>
+					<label className='block text-xs font-medium text-muted-foreground mb-1'>Quality Status</label>
+					<select
+						className='w-full rounded border border-border bg-background px-3 py-2 text-sm'
+						value={qualityStatus}
+						onChange={(e) => setQualityStatus(e.target.value as any)}
+					>
+						<option value='PASS'>PASS - Meets institutional standards</option>
+						<option value='PARTIAL'>PARTIAL - Minor defects / partial acceptance</option>
+						<option value='FAIL'>FAIL - Non-compliant / rejected</option>
+					</select>
+				</div>
+				{rejected > 0 && (
+					<div>
+						<label className='block text-xs font-medium text-muted-foreground mb-1'>Rejection Reason *</label>
+						<input
+							className='w-full rounded border border-border bg-background px-3 py-2 text-sm'
+							placeholder='Reason for rejection (e.g. Broken seal, damaged packaging)'
+							value={rejectionReason}
+							onChange={(e) => setRejectionReason(e.target.value)}
+							required
+						/>
+					</div>
+				)}
+				<div>
+					<label className='block text-xs font-medium text-muted-foreground mb-1'>Quality Inspection Notes</label>
+					<textarea
+						rows={2}
+						className='w-full rounded border border-border bg-background px-3 py-2 text-sm'
+						placeholder='Notes on physical condition, packaging, verification details'
+						value={qualityNotes}
+						onChange={(e) => setQualityNotes(e.target.value)}
+					/>
+				</div>
+				<div className='flex justify-end gap-2 pt-2'>
+					<button type='button' className='rounded border border-border px-3 py-2 text-xs font-medium' onClick={onClose}>
+						Cancel
+					</button>
+					<button
+						type='submit'
+						disabled={loading}
+						className='rounded bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50'
+					>
+						{loading ? 'Recording...' : 'Certify & Record QA'}
+					</button>
+				</div>
+			</form>
+		</Modal>
 	)
 }
 
@@ -8168,6 +8447,7 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 	const [activeTab, setActiveTab] = useState<'returns' | 'grns' | 'history'>('returns')
 	const [loading, setLoading] = useState(false)
 	const [selectedReturn, setSelectedReturn] = useState<any | null>(null)
+	const [selectedGrnLine, setSelectedGrnLine] = useState<any | null>(null)
 
 	const load = () => {
 		setLoading(true)
@@ -8323,6 +8603,18 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 							{ key: 'quantityReceived', label: 'Qty Received' },
 							{ key: 'batchNumber', label: 'Batch №' },
 							{ key: 'expiryDate', label: 'Expiry Date', render: (row) => row.expiryDate ? new Date(row.expiryDate).toLocaleDateString() : 'N/A' },
+							{
+								key: 'actions',
+								label: 'Action',
+								render: (row) => (
+									<button
+										className='inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:opacity-90'
+										onClick={() => setSelectedGrnLine(row)}
+									>
+										<PackageCheck size={14} /> Inspect Delivery
+									</button>
+								),
+							},
 						]}
 					/>
 				</Panel>
@@ -8392,6 +8684,17 @@ function InspectorPortalSection({ token, user }: { token: string; user: User }) 
 					returnRecord={selectedReturn}
 					onClose={() => {
 						setSelectedReturn(null)
+						load()
+					}}
+				/>
+			)}
+
+			{selectedGrnLine && (
+				<InspectGrnLineModal
+					token={token}
+					line={selectedGrnLine}
+					onClose={() => {
+						setSelectedGrnLine(null)
 						load()
 					}}
 				/>
@@ -9880,25 +10183,25 @@ const workflowSteps: Array<{
 	view: AppView
 	icon: React.ComponentType<{ size?: number; className?: string }>
 }> = [
-	{ label: 'Login', view: 'dashboard', icon: ShieldCheck },
 	{ label: 'Dashboard', view: 'dashboard', icon: LayoutDashboard },
-	{ label: 'Item Registration', view: 'items', icon: Boxes },
-	{ label: 'Procurement / Donation', view: 'receipts', icon: CircleDollarSign },
+	{ label: 'Configuration', view: 'master', icon: Database },
+	{ label: 'Item Master', view: 'items', icon: Boxes },
 	{ label: 'Goods Receiving (GRN)', view: 'receipts', icon: PackagePlus },
 	{ label: 'Inspector Portal (QA)', view: 'inspection', icon: PackageSearch },
 	{ label: 'Storage & Coding', view: 'storage', icon: MapPin },
-	{ label: 'Approver Portal', view: 'approvals', icon: ShieldCheck },
 	{ label: 'Stock Issue (Model 22)', view: 'issues', icon: PackageCheck },
+	{ label: 'Approver Portal', view: 'approvals', icon: ShieldCheck },
 	{ label: 'Returned Items', view: 'returns', icon: Recycle },
-	{ label: 'Stock Rotation (FIFO / FEFO)', view: 'ledger', icon: TimerReset },
-	{ label: 'Inventory Monitoring', view: 'ledger', icon: Gauge },
+	{ label: 'Stock Ledger', view: 'ledger', icon: Gauge },
 	{ label: 'Bin Card', view: 'bin-card', icon: ClipboardCheck },
-	{ label: 'Physical Inventory Count', view: 'counts', icon: ClipboardCheck },
-	{ label: 'Stock Reconciliation', view: 'adjustments', icon: Recycle },
+	{ label: 'Physical Count', view: 'counts', icon: ClipboardCheck },
+	{ label: 'Reconciliation', view: 'adjustments', icon: SlidersHorizontal },
 	{ label: 'Disposal Management', view: 'disposals', icon: Recycle },
 	{ label: 'Reports', view: 'reports', icon: FileDown },
 	{ label: 'User Management', view: 'users', icon: Users },
-	{ label: 'Analytics Dashboard', view: 'dashboard', icon: BarChart3 },
+	{ label: 'Audit Logs', view: 'audit', icon: History },
+	{ label: 'Desktop Settings', view: 'settings', icon: SlidersHorizontal },
+	{ label: 'Help Center', view: 'help', icon: BookOpen },
 ]
 
 function WorkflowRail({
@@ -9913,10 +10216,8 @@ function WorkflowRail({
 	const visibleSteps = workflowSteps.filter((step) =>
 		availableViews.includes(step.view)
 	)
-	const activeIndex = Math.max(
-		0,
-		visibleSteps.findIndex((step) => step.view === view)
-	)
+	const foundIndex = visibleSteps.findIndex((step) => step.view === view)
+	const activeIndex = foundIndex >= 0 ? foundIndex : 0
 	return (
 		<section className='mb-5 overflow-hidden rounded-lg border border-border bg-[linear-gradient(135deg,hsl(var(--surface)),hsl(var(--surface-subtle)))] shadow-sm'>
 			<div className='flex items-center justify-between gap-3 border-b border-border px-4 py-3'>
