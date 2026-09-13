@@ -3,7 +3,7 @@
  * Full-featured Serverless Backend & D1 Database integration for Cloudflare Workers
  */
 
-import ExcelJS from "exceljs/dist/exceljs.bare.min.js";
+import ExcelJS from "./vendor/exceljs.bare.min.js";
 
 export interface Env {
   DB?: D1Database;
