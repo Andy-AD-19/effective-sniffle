@@ -38,31 +38,68 @@ async function main() {
 
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@fmoh.local" } });
   const storekeeper = await prisma.user.findUniqueOrThrow({ where: { email: "storekeeper@fmoh.local" } });
-  const officeSupplies = await prisma.category.upsert({
-    where: { name: "Office Supplies" },
-    update: {},
-    create: { name: "Office Supplies", description: "Consumable office and institutional supplies" }
-  });
-  const equipment = await prisma.category.upsert({
-    where: { name: "Equipment" },
-    update: {},
-    create: { name: "Equipment", description: "Fixed assets and durable goods" }
-  });
-  const pack = await prisma.unitOfMeasure.upsert({
-    where: { symbol: "pack" },
-    update: {},
-    create: { name: "Pack", symbol: "pack" }
-  });
-  const each = await prisma.unitOfMeasure.upsert({
-    where: { symbol: "ea" },
-    update: {},
-    create: { name: "Each", symbol: "ea" }
-  });
-  const source = await prisma.fundingSource.upsert({
-    where: { name: "Federal Allocation" },
-    update: {},
-    create: { name: "Federal Allocation" }
-  });
+  for (const [name, desc] of [
+    ["Office Supplies", "Consumable office and institutional supplies"],
+    ["Equipment", "Fixed assets and durable goods"],
+    ["Pharmaceuticals & Medicines", "Essential medicines and clinical pharmaceuticals"],
+    ["Medical Supplies", "Consumable clinical supplies and surgical disposables"],
+    ["Laboratory Reagents", "Diagnostic test kits and reagents"],
+    ["Medical Equipment", "Durable medical and hospital devices"],
+  ] as const) {
+    await prisma.category.upsert({
+      where: { name },
+      update: { description: desc },
+      create: { name, description: desc }
+    });
+  }
+
+  for (const [name, symbol] of [
+    ["Bottle", "btl"],
+    ["Box", "box"],
+    ["Each", "ea"],
+    ["Kit", "kit"],
+    ["Pack", "pack"],
+    ["Vial", "vial"],
+    ["Set", "Set"],
+    ["Piece", "pc"],
+    ["Roll", "roll"]
+  ] as const) {
+    await prisma.unitOfMeasure.upsert({
+      where: { symbol },
+      update: { name },
+      create: { name, symbol }
+    });
+  }
+
+  for (const name of [
+    "Federal Allocation",
+    "Government Treasury Allocation",
+    "Global Fund Grant",
+    "USAID / PEPFAR",
+    "WHO Emergency Relief",
+    "Direct Institutional Donation"
+  ] as const) {
+    await prisma.fundingSource.upsert({
+      where: { name },
+      update: {},
+      create: { name }
+    });
+  }
+
+  for (const [name, code] of [
+    ["Main Store", "MAIN"],
+    ["Central Medical Store", "CMS"],
+    ["Cold Chain Facility", "COLD"],
+    ["Emergency Pharmacy Store", "EMRG"],
+    ["Returned Items Location", "RETURNED"]
+  ] as const) {
+    await prisma.storeLocation.upsert({
+      where: { code },
+      update: { name },
+      create: { code, name }
+    });
+  }
+
   for (const [name, description] of [
     ["Expired", "Past expiry date or no longer safe to use."],
     ["Damaged", "Physically damaged stock."],
@@ -78,11 +115,13 @@ async function main() {
       create: { name, description }
     });
   }
-  const store = await prisma.storeLocation.upsert({
-    where: { code: "MAIN" },
-    update: { name: "Main Store" },
-    create: { code: "MAIN", name: "Main Store" }
-  });
+
+  const officeSupplies = await prisma.category.findUniqueOrThrow({ where: { name: "Office Supplies" } });
+  const equipment = await prisma.category.findUniqueOrThrow({ where: { name: "Equipment" } });
+  const pack = await prisma.unitOfMeasure.findUniqueOrThrow({ where: { symbol: "pack" } });
+  const each = await prisma.unitOfMeasure.findUniqueOrThrow({ where: { symbol: "ea" } });
+  const source = await prisma.fundingSource.findFirstOrThrow({ where: { name: "Federal Allocation" } });
+  const store = await prisma.storeLocation.findUniqueOrThrow({ where: { code: "MAIN" } });
   const storageLocation = await prisma.storageLocation.upsert({
     where: { locationCode: "STORE-A-S2-B5" },
     update: {},

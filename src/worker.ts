@@ -90,19 +90,25 @@ const fallbackState = {
     { id: "unit-ea", name: "Each", symbol: "ea", active: 1 },
     { id: "unit-vial", name: "Vial", symbol: "vial", active: 1 },
     { id: "unit-bottle", name: "Bottle", symbol: "btl", active: 1 },
-    { id: "unit-kit", name: "Kit", symbol: "kit", active: 1 }
+    { id: "unit-kit", name: "Kit", symbol: "kit", active: 1 },
+    { id: "unit-set", name: "Set", symbol: "Set", active: 1 },
+    { id: "unit-pc", name: "Piece", symbol: "pc", active: 1 },
+    { id: "unit-roll", name: "Roll", symbol: "roll", active: 1 }
   ],
   fundingSources: [
     { id: "fund-gov", name: "Government Treasury Allocation", active: 1 },
     { id: "fund-glo", name: "Global Fund Grant", active: 1 },
     { id: "fund-usa", name: "USAID / PEPFAR", active: 1 },
     { id: "fund-who", name: "WHO Emergency Relief", active: 1 },
-    { id: "fund-don", name: "Direct Institutional Donation", active: 1 }
+    { id: "fund-don", name: "Direct Institutional Donation", active: 1 },
+    { id: "fund-fed", name: "Federal Allocation", active: 1 }
   ],
   stores: [
     { id: "store-main", name: "Central Medical Store", code: "MAIN", active: 1 },
+    { id: "store-cms", name: "Main Store", code: "CMS", active: 1 },
     { id: "store-cold", name: "Cold Chain Facility", code: "COLD", active: 1 },
-    { id: "store-pha", name: "Emergency Pharmacy Store", code: "EMRG", active: 1 }
+    { id: "store-pha", name: "Emergency Pharmacy Store", code: "EMRG", active: 1 },
+    { id: "store-ret", name: "Returned Items Location", code: "RETURNED", active: 1 }
   ],
   storageLocations: [
     { id: "loc-01", storeId: "store-main", locationCode: "MAIN-A1-01", roomOrZone: "Zone A", shelfNumber: "1", rackNumber: "R1", binNumber: "01", description: "Main Store, Zone A, Shelf 1, Bin 1", isActive: 1 },
@@ -443,6 +449,34 @@ function getMasterDataList(model: string): any[] | null {
   }
 }
 
+function getD1TableName(model: string): string | null {
+  switch (model) {
+    case "category":
+    case "categories":
+      return "Category";
+    case "unitOfMeasure":
+    case "unitsOfMeasure":
+      return "UnitOfMeasure";
+    case "fundingSource":
+    case "fundingSources":
+      return "FundingSource";
+    case "storeLocation":
+    case "stores":
+      return "StoreLocation";
+    case "department":
+    case "departments":
+      return "Department";
+    case "supplierDonor":
+    case "suppliers":
+      return "SupplierDonor";
+    case "disposalReason":
+    case "disposalReasons":
+      return "DisposalReason";
+    default:
+      return null;
+  }
+}
+
 function normalizeMasterItem(model: string, input: any, generatedId = uid(model.slice(0, 4))) {
   const active = input.active !== undefined ? (input.active ? 1 : 0) : 1;
   switch (model) {
@@ -624,6 +658,47 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 4. Master Data (Aggregate)
     if (path === "/master-data" && method === "GET") {
+      if (env.DB) {
+        try {
+          const [categoriesRes, unitsRes, fundingRes, storesRes, deptsRes, suppliersRes, storageLocsRes, disposalRes] = await Promise.all([
+            env.DB.prepare("SELECT * FROM Category WHERE active = 1 ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM UnitOfMeasure ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM FundingSource WHERE active = 1 ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM StoreLocation WHERE active = 1 ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM Department WHERE active = 1 ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM SupplierDonor WHERE active = 1 ORDER BY name ASC").all(),
+            env.DB.prepare("SELECT * FROM StorageLocation WHERE isActive = 1 ORDER BY locationCode ASC").all(),
+            env.DB.prepare("SELECT * FROM DisposalReason WHERE active = 1 ORDER BY name ASC").all()
+          ]);
+
+          const units = (unitsRes.results && unitsRes.results.length > 0) ? unitsRes.results : fallbackState.unitsOfMeasure;
+          const stores = (storesRes.results && storesRes.results.length > 0) ? storesRes.results : fallbackState.stores;
+          const categories = (categoriesRes.results && categoriesRes.results.length > 0) ? categoriesRes.results : fallbackState.categories;
+          const fundingSources = (fundingRes.results && fundingRes.results.length > 0) ? fundingRes.results : fallbackState.fundingSources;
+          const departments = (deptsRes.results && deptsRes.results.length > 0) ? deptsRes.results : fallbackState.departments;
+          const suppliers = (suppliersRes.results && suppliersRes.results.length > 0) ? suppliersRes.results : fallbackState.suppliers;
+          const storageLocations = (storageLocsRes.results && storageLocsRes.results.length > 0) ? storageLocsRes.results : fallbackState.storageLocations;
+          const disposalReasons = (disposalRes.results && disposalRes.results.length > 0) ? disposalRes.results : fallbackState.disposalReasons;
+
+          return jsonResponse({
+            departments,
+            categories,
+            units,
+            unitsOfMeasure: units,
+            fundingSources,
+            locations: stores,
+            stores,
+            storeLocations: stores,
+            storageLocations,
+            supplierDonors: suppliers,
+            suppliers,
+            disposalReasons
+          });
+        } catch (err) {
+          console.warn("D1 master-data query failed, falling back to in-memory state:", err);
+        }
+      }
+
       return jsonResponse({
         departments: fallbackState.departments,
         categories: fallbackState.categories,
@@ -647,14 +722,25 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const model = parts[2];
       const targetId = parts[3];
       const list = getMasterDataList(model);
+      const tableName = getD1TableName(model);
 
-      if (!list) {
+      if (!list && !tableName) {
         return jsonResponse({ message: `Unknown master-data model: ${model}` }, 400);
       }
 
       // GET /admin/master-data/:model
       if (method === "GET" && !targetId) {
-        return jsonResponse(list);
+        if (env.DB && tableName) {
+          try {
+            const result = await env.DB.prepare(`SELECT * FROM "${tableName}" ORDER BY name ASC`).all();
+            if (result.results && result.results.length > 0) {
+              return jsonResponse(result.results);
+            }
+          } catch (e) {
+            console.warn(`D1 query failed for ${tableName}:`, e);
+          }
+        }
+        return jsonResponse(list ?? []);
       }
 
       // POST /admin/master-data/:model
@@ -664,7 +750,46 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           return jsonResponse({ message: "Name is required" }, 400);
         }
         const newItem = normalizeMasterItem(model, body);
-        list.push(newItem);
+
+        if (env.DB && tableName) {
+          try {
+            if (tableName === "UnitOfMeasure") {
+              await env.DB.prepare(
+                `INSERT INTO "UnitOfMeasure" ("id", "name", "symbol") VALUES (?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.symbol).run();
+            } else if (tableName === "StoreLocation") {
+              await env.DB.prepare(
+                `INSERT INTO "StoreLocation" ("id", "name", "code", "active") VALUES (?, ?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.code, newItem.active).run();
+            } else if (tableName === "Department") {
+              await env.DB.prepare(
+                `INSERT INTO "Department" ("id", "name", "code", "active") VALUES (?, ?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.code, newItem.active).run();
+            } else if (tableName === "Category") {
+              await env.DB.prepare(
+                `INSERT INTO "Category" ("id", "name", "description", "active") VALUES (?, ?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.description || "", newItem.active).run();
+            } else if (tableName === "FundingSource") {
+              await env.DB.prepare(
+                `INSERT INTO "FundingSource" ("id", "name", "active") VALUES (?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.active).run();
+            } else if (tableName === "SupplierDonor") {
+              await env.DB.prepare(
+                `INSERT INTO "SupplierDonor" ("id", "name", "type", "contact", "active") VALUES (?, ?, ?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.type || "VENDOR", newItem.contact || "", newItem.active).run();
+            } else if (tableName === "DisposalReason") {
+              await env.DB.prepare(
+                `INSERT INTO "DisposalReason" ("id", "name", "description", "active") VALUES (?, ?, ?, ?)`
+              ).bind(newItem.id, newItem.name, newItem.description || "", newItem.active).run();
+            }
+          } catch (e) {
+            console.warn(`D1 insert failed for ${tableName}:`, e);
+          }
+        }
+
+        if (list) {
+          list.push(newItem);
+        }
 
         fallbackState.auditLogs.unshift({
           id: uid("aud"),
@@ -681,18 +806,48 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       // PATCH /admin/master-data/:model/:id
       if (method === "PATCH" && targetId) {
         const body = await request.json<any>();
-        const idx = list.findIndex(item => item.id === targetId);
-        if (idx === -1) {
-          return jsonResponse({ message: "Configuration record not found" }, 404);
+        let updated: any = null;
+
+        if (list) {
+          const idx = list.findIndex(item => item.id === targetId);
+          if (idx !== -1) {
+            const current = list[idx];
+            updated = {
+              ...current,
+              ...body,
+              active: body.active !== undefined ? (body.active ? 1 : 0) : current.active
+            };
+            list[idx] = updated;
+          }
         }
 
-        const current = list[idx];
-        const updated = {
-          ...current,
-          ...body,
-          active: body.active !== undefined ? (body.active ? 1 : 0) : current.active
-        };
-        list[idx] = updated;
+        if (env.DB && tableName) {
+          try {
+            if (body.active !== undefined) {
+              const activeVal = body.active ? 1 : 0;
+              await env.DB.prepare(`UPDATE "${tableName}" SET "active" = ? WHERE "id" = ?`)
+                .bind(activeVal, targetId).run();
+            }
+            if (body.name) {
+              await env.DB.prepare(`UPDATE "${tableName}" SET "name" = ? WHERE "id" = ?`)
+                .bind(body.name, targetId).run();
+            }
+            if (body.symbol && tableName === "UnitOfMeasure") {
+              await env.DB.prepare(`UPDATE "UnitOfMeasure" SET "symbol" = ? WHERE "id" = ?`)
+                .bind(body.symbol, targetId).run();
+            }
+            if (body.code && (tableName === "StoreLocation" || tableName === "Department")) {
+              await env.DB.prepare(`UPDATE "${tableName}" SET "code" = ? WHERE "id" = ?`)
+                .bind(body.code, targetId).run();
+            }
+          } catch (e) {
+            console.warn(`D1 update failed for ${tableName}:`, e);
+          }
+        }
+
+        if (!updated) {
+          updated = { id: targetId, ...body };
+        }
 
         fallbackState.auditLogs.unshift({
           id: uid("aud"),
@@ -716,9 +871,20 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
         let deletedCount = 0;
         for (const id of ids) {
-          const idx = list.findIndex(item => item.id === id);
-          if (idx !== -1) {
-            list.splice(idx, 1);
+          if (env.DB && tableName) {
+            try {
+              await env.DB.prepare(`DELETE FROM "${tableName}" WHERE "id" = ?`).bind(id).run();
+            } catch (e) {
+              console.warn(`D1 delete failed for ${tableName} id=${id}:`, e);
+            }
+          }
+          if (list) {
+            const idx = list.findIndex(item => item.id === id);
+            if (idx !== -1) {
+              list.splice(idx, 1);
+              deletedCount++;
+            }
+          } else {
             deletedCount++;
           }
         }

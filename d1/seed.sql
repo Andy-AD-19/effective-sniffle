@@ -1,4 +1,4 @@
-﻿-- FMOH Institutional Inventory - Cloudflare D1 Initial Seed Data
+-- FMOH Institutional Inventory - Cloudflare D1 Initial Seed Data
 INSERT OR IGNORE INTO "Department" ("id", "name", "code", "active") VALUES
 ('dept-log', 'Logistics', 'LOG', 1),
 ('dept-adm', 'Administration', 'ADM', 1),
@@ -19,19 +19,24 @@ INSERT OR IGNORE INTO "UnitOfMeasure" ("id", "name", "symbol") VALUES
 ('unit-ea', 'Each', 'ea'),
 ('unit-vial', 'Vial', 'vial'),
 ('unit-bottle', 'Bottle', 'btl'),
-('unit-kit', 'Kit', 'kit');
+('unit-kit', 'Kit', 'kit'),
+('unit-set', 'Set', 'Set'),
+('unit-pc', 'Piece', 'pc'),
+('unit-roll', 'Roll', 'roll');
 
 INSERT OR IGNORE INTO "FundingSource" ("id", "name", "active") VALUES
 ('fund-gov', 'Government Treasury Allocation', 1),
 ('fund-glo', 'Global Fund Grant', 1),
 ('fund-usa', 'USAID / PEPFAR', 1),
 ('fund-who', 'WHO Emergency Relief', 1),
-('fund-don', 'Direct Institutional Donation', 1);
+('fund-don', 'Direct Institutional Donation', 1),
+('fund-fed', 'Federal Allocation', 1);
 
 INSERT OR IGNORE INTO "StoreLocation" ("id", "name", "code", "active") VALUES
 ('store-main', 'Central Medical Store', 'MAIN', 1),
 ('store-cold', 'Cold Chain Facility', 'COLD', 1),
-('store-pha', 'Emergency Pharmacy Store', 'EMRG', 1);
+('store-pha', 'Emergency Pharmacy Store', 'EMRG', 1),
+('store-ret', 'Returned Items Location', 'RETURNED', 1);
 
 INSERT OR IGNORE INTO "StorageLocation" ("id", "storeId", "locationCode", "roomOrZone", "shelfNumber", "rackNumber", "binNumber", "description", "isActive") VALUES
 ('loc-01', 'store-main', 'MAIN-A1-01', 'Zone A', '1', 'R1', '01', 'Main Store, Zone A, Shelf 1, Bin 1', 1),
