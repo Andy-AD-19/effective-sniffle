@@ -3,6 +3,8 @@
  * Full-featured Serverless Backend & D1 Database integration for Cloudflare Workers
  */
 
+import ExcelJS from "exceljs/dist/exceljs.bare.min.js";
+
 export interface Env {
   DB?: D1Database;
   ASSETS?: Fetcher;
@@ -463,6 +465,43 @@ function normalizeMasterItem(model: string, input: any, generatedId = uid(model.
   }
 }
 
+function getExcelCellValue(cell: any): any {
+  if (!cell || cell.value === null || cell.value === undefined) return null;
+  const val = cell.value;
+  if (typeof val === "object") {
+    if ("result" in val && val.result !== undefined && val.result !== null) return val.result;
+    if ("richText" in val && Array.isArray(val.richText)) {
+      return val.richText.map((t: any) => t.text).join("");
+    }
+    if ("text" in val) return val.text;
+  }
+  return val;
+}
+
+function normalizeHeaderKey(val: any): string {
+  if (!val) return "";
+  return String(val).toLowerCase().replace(/[^a-z0-9\u1200-\u137F]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function cleanWorkerImportCode(raw: string, fallback: string): string {
+  if (!raw || /^none$/i.test(raw) || /^n\/a$/i.test(raw)) return fallback;
+  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9._/-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return cleaned || fallback;
+}
+
+function normalizeWorkerUnit(raw: string): { symbol: string; name: string } {
+  const value = String(raw ?? "").trim();
+  if (/^(each|ea)$/i.test(value)) return { symbol: "ea", name: "Each" };
+  if (/^(pcs?|piece)$/i.test(value)) return { symbol: "pc", name: "Piece" };
+  if (/^(packs?)$/i.test(value)) return { symbol: "pack", name: "Pack" };
+  if (/^(ሴት|set)$/i.test(value)) return { symbol: "set", name: "Set" };
+  if (/^(box|boxes)$/i.test(value)) return { symbol: "box", name: "Box" };
+  if (/^(roll|rolls)$/i.test(value)) return { symbol: "roll", name: "Roll" };
+  if (/^(bottle|btl)$/i.test(value)) return { symbol: "btl", name: "Bottle" };
+  if (/^(vial|vials)$/i.test(value)) return { symbol: "vial", name: "Vial" };
+  return { symbol: value.slice(0, 10) || "ea", name: value || "Each" };
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -755,11 +794,280 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/items/import" && method === "POST") {
-      return jsonResponse({
-        imported: 0,
-        count: fallbackState.items.length,
-        message: "Items imported successfully"
-      });
+      try {
+        const contentType = request.headers.get("content-type") || "";
+        if (!contentType.includes("multipart/form-data")) {
+          return jsonResponse({ message: "Content-Type must be multipart/form-data with a file payload." }, 400);
+        }
+        const formData = await request.formData();
+        const file = formData.get("file");
+        if (!file || typeof file === "string") {
+          return jsonResponse({ message: "No Excel file provided. Please choose a valid .xlsx file." }, 400);
+        }
+
+        const fileName = (file as File).name || "import.xlsx";
+        if (!fileName.toLowerCase().endsWith(".xlsx")) {
+          return jsonResponse({ message: "Unsupported file format. Please upload an Excel workbook (.xlsx)." }, 400);
+        }
+
+        const arrayBuffer = await (file as File).arrayBuffer();
+        if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+          return jsonResponse({ message: "The uploaded file is empty (0 bytes)." }, 400);
+        }
+
+        const Workbook = (ExcelJS as any).Workbook || (ExcelJS as any).default?.Workbook;
+        const wb = new Workbook();
+        await wb.xlsx.load(arrayBuffer);
+
+        const sheet = wb.worksheets[0];
+        if (!sheet || sheet.rowCount === 0) {
+          return jsonResponse({ message: "The uploaded workbook contains no sheets or data rows." }, 400);
+        }
+
+        // 1. Detect Header Row
+        let headerRowIndex = -1;
+        const columnMap: Record<string, number> = {};
+
+        for (let r = 1; r <= Math.min(30, sheet.rowCount); r++) {
+          const row = sheet.getRow(r);
+          const headers: { col: number; text: string }[] = [];
+          row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+            const val = getExcelCellValue(cell);
+            const norm = normalizeHeaderKey(val);
+            if (norm) headers.push({ col: colNumber, text: norm });
+          });
+
+          const hasDesc = headers.some(h => /item desc|description|የ ዕ ቃ|ዕቃ.*መግለጫ|መግለጫ/i.test(h.text));
+          const hasSerialOrPart = headers.some(h => /s\s*n|part number|serial|code/i.test(h.text));
+          const hasQtyOrUnit = headers.some(h => /qty|quantity|unit|መለኪያ|ብዛት/i.test(h.text));
+
+          if (hasDesc && (hasSerialOrPart || hasQtyOrUnit)) {
+            headerRowIndex = r;
+            headers.forEach(h => {
+              const text = h.text;
+              if (/item desc|description|መግለጫ/i.test(text)) columnMap["description"] = h.col;
+              else if (/part number|part no|የመለዋወጫ ቁጥር/i.test(text)) columnMap["partNumber"] = h.col;
+              else if (/^s\s*n$|serial|ተ\s*ቁ/i.test(text)) columnMap["serial"] = h.col;
+              else if (/unit\s*price|unit\s*cost|ዋጋ/i.test(text)) columnMap["unitPrice"] = h.col;
+              else if (/unit of measure|uom|^unit$|መለኪያ/i.test(text)) columnMap["unit"] = h.col;
+              else if (/final r[o|e]prt qty|report qty|quantity|^qty$|ብዛት/i.test(text)) columnMap["quantity"] = h.col;
+              else if (/phy[s|i]cal bal|physical balance|physical count/i.test(text)) columnMap["physicalBalance"] = h.col;
+              else if (/source of fund|funding|fund|የገንዘብ ምንጭ/i.test(text)) columnMap["fundingSource"] = h.col;
+            });
+            break;
+          }
+        }
+
+        if (headerRowIndex === -1) {
+          headerRowIndex = 13;
+          columnMap["serial"] = 1;
+          columnMap["description"] = 2;
+          columnMap["partNumber"] = 3;
+          columnMap["unit"] = 4;
+          columnMap["quantity"] = 5;
+          columnMap["physicalBalance"] = 11;
+          columnMap["unitPrice"] = 13;
+          columnMap["fundingSource"] = 15;
+        }
+
+        // 2. Find first data row (skipping sub-headers & blank spacers)
+        let firstDataRow = headerRowIndex + 1;
+        if (firstDataRow <= sheet.rowCount) {
+          const nextRow = sheet.getRow(firstDataRow);
+          const c1 = normalizeHeaderKey(getExcelCellValue(nextRow.getCell(columnMap["serial"] || 1)));
+          if (c1 === "s n" || c1 === "serial" || c1 === "s/n" || (c1 && !/^\d+$/.test(c1))) {
+            firstDataRow++;
+          }
+        }
+        while (firstDataRow <= sheet.rowCount) {
+          const row = sheet.getRow(firstDataRow);
+          const desc = getExcelCellValue(row.getCell(columnMap["description"] || 2));
+          const serial = getExcelCellValue(row.getCell(columnMap["serial"] || 1));
+          if (desc || (serial !== null && serial !== undefined && /^\d+$/.test(String(serial).trim()))) {
+            break;
+          }
+          firstDataRow++;
+        }
+
+        // Ensure category & store exist
+        let category = fallbackState.categories.find(c => c.name.toLowerCase() === "manual inventory import");
+        if (!category) {
+          category = {
+            id: uid("cat"),
+            name: "Manual Inventory Import",
+            description: "Items imported from manual Excel inventory workflows",
+            active: 1
+          };
+          fallbackState.categories.push(category);
+        }
+        const defaultStore = fallbackState.stores[0] || { id: "store-main", name: "Main Store", code: "MAIN" };
+
+        let imported = 0;
+        let created = 0;
+        let updated = 0;
+        let skipped = 0;
+        const errors: string[] = [];
+        const seenCodes = new Set<string>(fallbackState.items.map(i => i.code));
+
+        for (let r = firstDataRow; r <= sheet.rowCount; r++) {
+          const row = sheet.getRow(r);
+          const rawSerial = getExcelCellValue(row.getCell(columnMap["serial"] || 1));
+          const rawDesc = getExcelCellValue(row.getCell(columnMap["description"] || 2));
+
+          const serial = String(rawSerial ?? "").trim();
+          const description = String(rawDesc ?? "").trim();
+
+          // Stop at summary / committee rows
+          if (/^total\b/i.test(serial) || /^total\b/i.test(description)) break;
+          if (/የቆጠራ ኮሚቴ/i.test(description) || /committee/i.test(description)) break;
+
+          if (!description) {
+            skipped++;
+            continue;
+          }
+
+          const partNumber = String(getExcelCellValue(row.getCell(columnMap["partNumber"] || 3)) ?? "").trim();
+          const rawUnit = String(getExcelCellValue(row.getCell(columnMap["unit"] || 4)) ?? "").trim();
+          const unitInfo = normalizeWorkerUnit(rawUnit);
+
+          const qtyVal = getExcelCellValue(row.getCell(columnMap["quantity"] || 5));
+          const finalReportQuantity = Number(qtyVal !== null && !isNaN(Number(qtyVal)) ? Number(qtyVal) : 0);
+
+          const physVal = getExcelCellValue(row.getCell(columnMap["physicalBalance"] || 11));
+          const physicalBalance = Number(physVal !== null && !isNaN(Number(physVal)) ? Number(physVal) : 0);
+
+          const priceVal = getExcelCellValue(row.getCell(columnMap["unitPrice"] || 13));
+          const unitPrice = Number(priceVal !== null && !isNaN(Number(priceVal)) ? Number(priceVal) : 0);
+
+          const rawFund = String(getExcelCellValue(row.getCell(columnMap["fundingSource"] || 15)) ?? "Federal Allocation").trim();
+          const fundingSource = rawFund || "Federal Allocation";
+
+          // Ensure unit exists
+          let unit = fallbackState.unitsOfMeasure.find(u =>
+            u.symbol.toLowerCase() === unitInfo.symbol.toLowerCase() ||
+            u.name.toLowerCase() === unitInfo.name.toLowerCase()
+          );
+          if (!unit) {
+            unit = { id: uid("unit"), name: unitInfo.name, symbol: unitInfo.symbol, active: 1 };
+            fallbackState.unitsOfMeasure.push(unit);
+          }
+
+          // Ensure funding source exists
+          let funding = fallbackState.fundingSources.find(f => f.name.toLowerCase() === fundingSource.toLowerCase());
+          if (!funding) {
+            funding = { id: uid("fund"), name: fundingSource, active: 1 };
+            fallbackState.fundingSources.push(funding);
+          }
+
+          const baseCode = cleanWorkerImportCode(partNumber || serial, `MIHRET-${String(serial || r).padStart(4, "0")}`);
+          let code = baseCode;
+          let suffix = 2;
+          while (seenCodes.has(code)) {
+            code = `${baseCode}-${suffix}`;
+            suffix++;
+          }
+          seenCodes.add(code);
+
+          const levels = Math.max(finalReportQuantity, physicalBalance, 1);
+          const existingIndex = fallbackState.items.findIndex(i => i.code === code);
+          const itemData = {
+            code,
+            description,
+            kind: "GENERAL_SUPPLY",
+            categoryId: category.id,
+            unitId: unit.id,
+            defaultLocationId: defaultStore.id,
+            reorderLevel: 0,
+            minimumStock: 0,
+            maximumStock: levels,
+            fundingSourceId: funding.id,
+            batchTrackingRequired: false,
+            expiryTrackingRequired: false,
+            barcodeRequired: true,
+            active: true,
+            updatedAt: new Date().toISOString()
+          };
+
+          if (existingIndex >= 0) {
+            fallbackState.items[existingIndex] = {
+              ...fallbackState.items[existingIndex],
+              ...itemData
+            };
+            updated++;
+          } else {
+            const newItem = {
+              id: uid("item"),
+              ...itemData,
+              createdAt: new Date().toISOString()
+            };
+            fallbackState.items.push(newItem);
+            created++;
+          }
+
+          if (env.DB) {
+            try {
+              await env.DB.prepare(`
+                INSERT INTO Item (id, code, description, kind, categoryId, unitId, defaultLocationId, reorderLevel, minimumStock, maximumStock, fundingSourceId, batchTrackingRequired, expiryTrackingRequired, barcodeRequired, active, createdAt, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+                ON CONFLICT(code) DO UPDATE SET
+                  description = excluded.description,
+                  unitId = excluded.unitId,
+                  maximumStock = excluded.maximumStock,
+                  fundingSourceId = excluded.fundingSourceId,
+                  updatedAt = datetime('now')
+              `).bind(
+                uid("item"), code, description, "GENERAL_SUPPLY", category.id, unit.id, defaultStore.id,
+                0, 0, levels, funding.id, 0, 0, 1
+              ).run();
+            } catch (d1Err) {
+              // Ignore if schema differs in D1
+            }
+          }
+
+          imported++;
+        }
+
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          action: "item.import_excel",
+          entityType: "Item",
+          entityId: "bulk",
+          actorId: (user as any)?.sub || "system",
+          createdAt: new Date().toISOString(),
+          after: JSON.stringify({ fileName, imported, created, updated, skipped })
+        });
+
+        if (imported === 0) {
+          return jsonResponse({
+            imported: 0,
+            created: 0,
+            updated: 0,
+            skipped,
+            sheet: sheet.name,
+            message: "No valid inventory items were found in the uploaded workbook.",
+            errors: ["Workbook contains no valid data rows matching inventory headers."]
+          }, 400);
+        }
+
+        return jsonResponse({
+          imported,
+          created,
+          updated,
+          skipped,
+          sheet: sheet.name,
+          message: `Imported ${imported} items successfully (${created} created, ${updated} updated, ${skipped} skipped).`,
+          errors
+        });
+      } catch (err: any) {
+        return jsonResponse({
+          message: err?.message || "Failed to process Excel workbook import.",
+          imported: 0,
+          created: 0,
+          updated: 0,
+          skipped: 0,
+          errors: [err?.message || "Unknown parsing error"]
+        }, 400);
+      }
     }
 
     if (path.startsWith("/items/") && path.endsWith("/files") && method === "PATCH") {
