@@ -4,6 +4,10 @@
   "main": "../../src/worker.ts",
   "compatibility_date": "2024-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "exceljs/dist/exceljs.bare.min.js": "./../../src/vendor/exceljs.bare.min.js",
+    "exceljs": "./../../src/vendor/exceljs.bare.min.js"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
