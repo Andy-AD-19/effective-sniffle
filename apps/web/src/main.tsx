@@ -3164,6 +3164,7 @@ function MasterDataPage({ token }: { token: string }) {
 			setContact('')
 			setMessage('Configuration record saved.')
 			notify('success', 'Configuration record saved.')
+			window.dispatchEvent(new CustomEvent('fmoh-master-data-updated'))
 			await load()
 		} catch (err) {
 			const message = errorMessage(err, 'Unable to save configuration record.')
@@ -3194,6 +3195,7 @@ function MasterDataPage({ token }: { token: string }) {
 				: 'Configuration record deactivated.'
 			setMessage(text)
 			notify('success', text)
+			window.dispatchEvent(new CustomEvent('fmoh-master-data-updated'))
 			await load()
 		} catch (err) {
 			const message = errorMessage(
@@ -3236,6 +3238,7 @@ function MasterDataPage({ token }: { token: string }) {
 			const text = `${result.deletedCount} record${result.deletedCount === 1 ? '' : 's'} deleted.`
 			setMessage(text)
 			notify('success', text)
+			window.dispatchEvent(new CustomEvent('fmoh-master-data-updated'))
 			await load()
 		} catch (err) {
 			const message = errorMessage(err, 'Unable to delete selected records.')
@@ -3462,7 +3465,7 @@ function BinCardView({ detail }: { detail: any }) {
 				<div>
 					<span className='text-muted-foreground'>Unit</span>
 					<br />
-					{detail.unit?.symbol ?? 'N/A'}
+					{detail.unit?.symbol ?? detail.unitSymbol ?? (typeof detail.unit === 'string' ? detail.unit : 'N/A')}
 				</div>
 				<div>
 					<span className='text-muted-foreground'>Current balance</span>
@@ -3636,7 +3639,14 @@ function BinCardRoute({ token }: { token: string }) {
 							label: 'Category',
 							render: (row) => row.category?.name,
 						},
-						{ key: 'unit', label: 'Unit', render: (row) => row.unit?.symbol },
+						{
+							key: 'unit',
+							label: 'Unit',
+							render: (row) =>
+								row.unit?.symbol ||
+								row.unitSymbol ||
+								(typeof row.unit === 'string' ? row.unit : 'N/A'),
+						},
 						{ key: 'currentStock', label: 'Stock' },
 						{
 							key: 'stockStatus',
@@ -3857,19 +3867,31 @@ function Items({ token, user }: { token: string; user: User }) {
 	useEffect(() => {
 		setPage(1)
 	}, [search])
-	useEffect(() => {
+	const fetchMaster = () => {
 		request<any>('/master-data', token).then((masterData) => {
 			setMaster(masterData)
+			const unitsList = masterData.units || masterData.unitsOfMeasure || []
+			const locationsList = masterData.locations || masterData.stores || []
 			setForm((current: any) => ({
 				...current,
 				categoryId: current.categoryId || masterData.categories?.[0]?.id || '',
-				unitId: current.unitId || masterData.units?.[0]?.id || '',
+				unitId: current.unitId || unitsList[0]?.id || '',
 				defaultLocationId:
-					current.defaultLocationId || masterData.locations?.[0]?.id || '',
+					current.defaultLocationId || locationsList[0]?.id || '',
 				fundingSourceId:
 					current.fundingSourceId || masterData.fundingSources?.[0]?.id || '',
 			}))
 		})
+	}
+	useEffect(() => {
+		fetchMaster()
+		const onMasterUpdated = () => {
+			fetchMaster()
+		}
+		window.addEventListener('fmoh-master-data-updated', onMasterUpdated)
+		return () => {
+			window.removeEventListener('fmoh-master-data-updated', onMasterUpdated)
+		}
 	}, [token])
 
 	const getSubCategories = (kind: string): string[] => {
@@ -4009,12 +4031,14 @@ function Items({ token, user }: { token: string; user: User }) {
 			setForm((current: any) => {
 				const nextKind = current.kind || 'GENERAL_SUPPLY';
 				const nextSubCategories = getSubCategories(nextKind);
+				const unitsList = master?.units || master?.unitsOfMeasure || []
+				const locationsList = master?.locations || master?.stores || []
 				return {
 					...emptyForm,
 					categoryId: current.categoryId || master?.categories?.[0]?.id || '',
-					unitId: current.unitId || master?.units?.[0]?.id || '',
+					unitId: current.unitId || unitsList[0]?.id || '',
 					defaultLocationId:
-						current.defaultLocationId || master?.locations?.[0]?.id || '',
+						current.defaultLocationId || locationsList[0]?.id || '',
 					fundingSourceId:
 						current.fundingSourceId || master?.fundingSources?.[0]?.id || '',
 					kind: nextKind,
@@ -4271,7 +4295,7 @@ function Items({ token, user }: { token: string; user: User }) {
 							required
 						>
 							<option value=''>Select unit</option>
-							{master?.units?.map((unit: any) => (
+							{(master?.units || master?.unitsOfMeasure || [])?.map((unit: any) => (
 								<option key={unit.id} value={unit.id}>
 									{unit.name} ({unit.symbol})
 								</option>
@@ -4286,7 +4310,7 @@ function Items({ token, user }: { token: string; user: User }) {
 							required
 						>
 							<option value=''>Select default store</option>
-							{master?.locations?.map((location: any) => (
+							{(master?.locations || master?.stores || [])?.map((location: any) => (
 								<option key={location.id} value={location.id}>
 									{location.name}
 								</option>
@@ -4580,8 +4604,8 @@ function Items({ token, user }: { token: string; user: User }) {
 										setForm({
 											...emptyForm,
 											categoryId: master?.categories?.[0]?.id || '',
-											unitId: master?.units?.[0]?.id || '',
-											defaultLocationId: master?.locations?.[0]?.id || '',
+											unitId: (master?.units || master?.unitsOfMeasure)?.[0]?.id || '',
+											defaultLocationId: (master?.locations || master?.stores)?.[0]?.id || '',
 											fundingSourceId: master?.fundingSources?.[0]?.id || '',
 										})
 									}
@@ -4835,7 +4859,8 @@ function Items({ token, user }: { token: string; user: User }) {
 							onChange={(e) => setForm({ ...form, unitId: e.target.value })}
 							required
 						>
-							{master?.units?.map((unit: any) => (
+							<option value=''>Select unit</option>
+							{(master?.units || master?.unitsOfMeasure || [])?.map((unit: any) => (
 								<option key={unit.id} value={unit.id}>
 									{unit.name} ({unit.symbol})
 								</option>
@@ -4849,7 +4874,8 @@ function Items({ token, user }: { token: string; user: User }) {
 							}
 							required
 						>
-							{master?.locations?.map((location: any) => (
+							<option value=''>Select default store</option>
+							{(master?.locations || master?.stores || [])?.map((location: any) => (
 								<option key={location.id} value={location.id}>
 									{location.name}
 								</option>
@@ -5356,13 +5382,14 @@ function Receiving({
 			request<any>('/master-data', token),
 			request<any>('/items?active=true&pageSize=1000', token),
 		])
+		const suppliersList = masterData.supplierDonors || masterData.suppliers || []
 		setReceipts(receiptRows)
 		setMaster(masterData)
 		setItems(itemData.items ?? [])
 		setForm((current: any) => ({
 			...current,
 			supplierDonorId:
-				current.supplierDonorId || masterData.supplierDonors?.[0]?.id || '',
+				current.supplierDonorId || suppliersList[0]?.id || '',
 			lines: current.lines.map((line: any) => ({
 				...line,
 				itemId: line.itemId || itemData.items?.[0]?.id || '',
@@ -5375,6 +5402,13 @@ function Receiving({
 		load().catch((err) =>
 			setMessage(errorMessage(err, 'Unable to load receiving records.'))
 		)
+		const onMasterUpdated = () => {
+			load().catch(() => undefined)
+		}
+		window.addEventListener('fmoh-master-data-updated', onMasterUpdated)
+		return () => {
+			window.removeEventListener('fmoh-master-data-updated', onMasterUpdated)
+		}
 	}, [token, filters])
 
 	async function openModel19(receiptId: string) {
@@ -5652,11 +5686,11 @@ function Receiving({
 								required
 							>
 								<option value=''>
-									{master?.supplierDonors?.length
+									{(master?.supplierDonors || master?.suppliers)?.length
 										? 'Select supplier / donor'
 										: 'No supplier / donor available'}
 								</option>
-								{master?.supplierDonors?.map((supplier: any) => (
+								{(master?.supplierDonors || master?.suppliers || [])?.map((supplier: any) => (
 									<option key={supplier.id} value={supplier.id}>
 										{supplier.name}
 									</option>
@@ -7647,7 +7681,7 @@ function InspectReturnModal({
 
 	useEffect(() => {
 		request<any>('/master-data', token).then((data) => {
-			const activeStores = data.storeLocations ?? []
+			const activeStores = data.storeLocations ?? data.locations ?? data.stores ?? []
 			setStores(activeStores)
 			const mainStore = activeStores.find((s: any) => s.code === 'MAIN') ?? activeStores[0]
 			if (mainStore) {

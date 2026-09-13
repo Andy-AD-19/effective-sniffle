@@ -502,6 +502,21 @@ function normalizeWorkerUnit(raw: string): { symbol: string; name: string } {
   return { symbol: value.slice(0, 10) || "ea", name: value || "Each" };
 }
 
+function enrichItem(item: any): any {
+  if (!item) return item;
+  const unit = fallbackState.unitsOfMeasure.find(u => u.id === item.unitId || u.symbol === item.unitSymbol || u.name === item.unit) || (item.unit && typeof item.unit === "object" ? item.unit : { id: item.unitId || "unit-ea", name: item.unit || "Each", symbol: item.unitSymbol || "ea" });
+  const category = fallbackState.categories.find(c => c.id === item.categoryId) || (item.category && typeof item.category === "object" ? item.category : null);
+  const fundingSource = fallbackState.fundingSources.find(f => f.id === item.fundingSourceId) || (item.fundingSource && typeof item.fundingSource === "object" ? item.fundingSource : null);
+  const defaultLocation = fallbackState.stores.find(s => s.id === item.defaultLocationId) || (item.defaultLocation && typeof item.defaultLocation === "object" ? item.defaultLocation : null);
+  return {
+    ...item,
+    unit,
+    category,
+    fundingSource,
+    defaultLocation
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -612,10 +627,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return jsonResponse({
         departments: fallbackState.departments,
         categories: fallbackState.categories,
+        units: fallbackState.unitsOfMeasure,
         unitsOfMeasure: fallbackState.unitsOfMeasure,
         fundingSources: fallbackState.fundingSources,
+        locations: fallbackState.stores,
         stores: fallbackState.stores,
+        storeLocations: fallbackState.stores,
         storageLocations: fallbackState.storageLocations,
+        supplierDonors: fallbackState.suppliers,
         suppliers: fallbackState.suppliers,
         disposalReasons: fallbackState.disposalReasons
       });
@@ -774,7 +793,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         list = list.filter(i => i.active !== false && i.active !== 0);
       }
       return jsonResponse({
-        items: list,
+        items: list.map(enrichItem),
         total: list.length,
         page: 1,
         pageSize: 1000
@@ -790,7 +809,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         createdAt: new Date().toISOString()
       };
       fallbackState.items.unshift(newItem);
-      return jsonResponse(newItem, 201);
+      return jsonResponse(enrichItem(newItem), 201);
     }
 
     if (path === "/items/import" && method === "POST") {
@@ -1076,7 +1095,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
       Object.assign(item, body);
-      return jsonResponse(item);
+      return jsonResponse(enrichItem(item));
     }
 
     if (path.startsWith("/items/") && path.endsWith("/deactivate") && method === "PATCH") {
@@ -1084,7 +1103,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
       item.active = false;
-      return jsonResponse(item);
+      return jsonResponse(enrichItem(item));
     }
 
     if (path.startsWith("/items/") && path.endsWith("/custody") && method === "GET") {
@@ -1132,7 +1151,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const id = path.split("/")[2];
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
-      return jsonResponse(item);
+      return jsonResponse(enrichItem(item));
     }
 
     if (path.startsWith("/items/") && method === "PATCH") {
@@ -1141,7 +1160,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const idx = fallbackState.items.findIndex(i => i.id === id);
       if (idx === -1) return jsonResponse({ message: "Item not found" }, 404);
       fallbackState.items[idx] = { ...fallbackState.items[idx], ...body, updatedAt: new Date().toISOString() };
-      return jsonResponse(fallbackState.items[idx]);
+      return jsonResponse(enrichItem(fallbackState.items[idx]));
     }
 
     // 8. Storage Locations & Stock Batches

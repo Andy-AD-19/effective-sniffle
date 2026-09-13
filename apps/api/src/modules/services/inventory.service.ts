@@ -449,16 +449,23 @@ export class InventoryService {
       this.prisma.supplierDonor.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
       this.prisma.storageLocation.findMany({ where: { isActive: true }, include: { store: true }, orderBy: { locationCode: "asc" } }),
       this.prisma.disposalReason.findMany({ where: { active: true }, orderBy: { name: "asc" } })
-    ]).then(([categories, units, fundingSources, locations, departments, supplierDonors, storageLocations, disposalReasons]) => ({
-      categories,
-      units,
-      fundingSources,
-      locations,
-      departments,
-      supplierDonors: this.receivingSources(supplierDonors, fundingSources),
-      storageLocations,
-      disposalReasons
-    }));
+    ]).then(([categories, units, fundingSources, locations, departments, supplierDonors, storageLocations, disposalReasons]) => {
+      const sources = this.receivingSources(supplierDonors, fundingSources);
+      return {
+        categories,
+        units,
+        unitsOfMeasure: units,
+        fundingSources,
+        locations,
+        stores: locations,
+        storeLocations: locations,
+        departments,
+        supplierDonors: sources,
+        suppliers: sources,
+        storageLocations,
+        disposalReasons
+      };
+    });
   }
 
   private receivingSources(supplierDonors: any[], fundingSources: any[]) {
