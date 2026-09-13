@@ -96,15 +96,28 @@ When deploying the frontend to Cloudflare Pages, configure the following environ
 3. Add environment variable: `VITE_API_URL = https://your-api-domain.com`.
 4. Click **Save and Deploy**.
 
-### Option B: Cloudflare Wrangler CLI
-When you deploy directly using Wrangler from the terminal:
+### Option B: Cloudflare Workers with Assets (Unified Worker & Frontend)
+When deploying the unified Cloudflare Worker with embedded static assets (`wrangler.jsonc`):
 
 ```bash
-# From repository root:
-npm run build
-npm run deploy
+# Build the web assets:
+npm run build:web
 
-# Or directly targeting the output directory:
+# Deploy the Worker and Assets (from root or apps/web):
+npx wrangler deploy
+```
+
+The application will be deployed directly to your Cloudflare Workers subdomain:
+`https://fmoh-inventory.<your-subdomain>.workers.dev`
+
+### Option C: Cloudflare Pages CLI
+If deploying specifically as a standalone Cloudflare Pages project:
+
+```bash
+# Build the web assets:
+npm run build:web
+
+# Deploy to Cloudflare Pages:
 npx wrangler pages deploy apps/web/dist --project-name fmoh-inventory-web
 ```
 
