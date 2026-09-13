@@ -4066,9 +4066,21 @@ function Items({ token, user }: { token: string; user: User }) {
 				method: 'POST',
 				body,
 			})
-			const message = `Imported ${result.imported} item rows from Excel (${result.created} created, ${result.updated} updated, ${result.skipped} skipped).`
+			if (!result || result.imported === 0) {
+				const warningMsg =
+					result?.errors?.[0] ||
+					result?.message ||
+					'No valid inventory items were found in the uploaded workbook.'
+				setMessage(warningMsg)
+				notify('warning', warningMsg)
+				return
+			}
+			const message = `Imported ${result.imported} item rows from Excel (${result.created ?? 0} created, ${result.updated ?? 0} updated, ${result.skipped ?? 0} skipped).`
 			setMessage(message)
 			notify('success', message)
+			if (result.errors?.length) {
+				console.warn('[FMOH Excel Import Warnings]', result.errors)
+			}
 			await load()
 		} catch (err) {
 			const message = errorMessage(err, 'Unable to import Excel item list.')
