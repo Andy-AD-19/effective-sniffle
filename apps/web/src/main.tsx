@@ -1013,7 +1013,47 @@ async function request<T>(
 		window.dispatchEvent(new CustomEvent('fmoh-auth-expired'))
 	}
 	if (!response.ok) throw new Error(await friendlyResponseError(response))
-	return response.json()
+	const result = (await response.json()) as any
+
+	// Persistent synchronization for Items across ephemeral worker isolates
+	try {
+		if (path === '/items' && init?.method === 'POST' && result && typeof result === 'object' && result.id) {
+			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
+			const existingIndex = stored.findIndex(
+				(i: any) => i.id === result.id || (i.code && i.code.toLowerCase() === result.code?.toLowerCase())
+			)
+			if (existingIndex >= 0) {
+				stored[existingIndex] = { ...stored[existingIndex], ...result }
+			} else {
+				stored.unshift(result)
+			}
+			await writeStoredValue('fmoh-persisted-registered-items', stored)
+		} else if (path.startsWith('/items/') && init?.method === 'PATCH' && result && typeof result === 'object' && result.id) {
+			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
+			const idx = stored.findIndex((i: any) => i.id === result.id)
+			if (idx >= 0) {
+				stored[idx] = { ...stored[idx], ...result }
+				await writeStoredValue('fmoh-persisted-registered-items', stored)
+			}
+		} else if (path.startsWith('/items') && (!init || !init.method || init.method === 'GET') && result && Array.isArray(result.items)) {
+			const stored = (await readStoredValue<any[]>('fmoh-persisted-registered-items', [])) || []
+			if (stored.length > 0) {
+				const serverIds = new Set(result.items.map((i: any) => i.id))
+				const serverCodes = new Set(result.items.map((i: any) => (i.code || '').toLowerCase()))
+				const missing = stored.filter(
+					(i: any) => !serverIds.has(i.id) && !serverCodes.has((i.code || '').toLowerCase())
+				)
+				if (missing.length > 0) {
+					result.items = [...missing, ...result.items]
+					result.total = (Number(result.total) || 0) + missing.length
+				}
+			}
+		}
+	} catch (storageErr) {
+		console.warn('[Storage Sync Warning]', storageErr)
+	}
+
+	return result as T
 }
 
 async function apiBaseUrl() {
@@ -4054,6 +4094,8 @@ function Items({ token, user }: { token: string; user: User }) {
 				: 'Item registered successfully.'
 			setMessage(message)
 			notify('success', message)
+			setShowItemList(true)
+			setPage(1)
 			await load()
 			if (closeEditor) setItemEditorOpen(false)
 		} catch (err) {
@@ -5728,107 +5770,123 @@ function Receiving({
 							return (
 							<div
 								key={index}
-								className={cn(
-									'grid min-w-0 items-start gap-3 rounded border border-border p-3',
-									showLineFundingSource
-										? 'lg:grid-cols-[minmax(220px,2fr)_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)_minmax(7rem,1fr)_minmax(8rem,1fr)_minmax(9rem,1fr)_minmax(10rem,1.1fr)]'
-										: 'lg:grid-cols-[minmax(240px,2fr)_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)_minmax(7rem,1fr)_minmax(8rem,1fr)_minmax(9rem,1fr)]'
-								)}
+								className='w-full min-w-0 max-w-full rounded border border-border bg-card/40 p-3'
 							>
-								<SearchableSelect
-									className='h-11'
-									value={line.itemId}
-									onChange={(value) => updateLine(index, { itemId: value })}
-									options={items.map((item) => ({
-										value: item.id,
-										label: `${item.code} - ${item.description}`,
-									}))}
-									placeholder={
-										items.length
-											? 'Select item to receive'
-											: 'No active items available'
-									}
-								/>
-								<input
-									className='h-11 rounded border border-border bg-background px-3 text-sm'
-									type='number'
-									min='1'
-									placeholder='Quantity'
-									value={line.quantityReceived}
-									onChange={(e) =>
-										updateLine(index, { quantityReceived: e.target.value })
-									}
-								/>
-								<input
-									className='h-11 rounded border border-border bg-background px-3 text-sm'
-									type='number'
-									min='0'
-									step='0.01'
-									placeholder='Unit price'
-									value={line.unitPrice}
-									onChange={(e) =>
-										updateLine(index, { unitPrice: e.target.value })
-									}
-								/>
-								<input
-									className='h-11 rounded border border-border bg-muted px-3 text-sm'
-									readOnly
-									placeholder='Total price'
-									value={
-										line.quantityReceived !== '' && line.unitPrice !== ''
-											? formatNumber(
-													numericValue(line.quantityReceived) *
-														numericValue(line.unitPrice),
-													2
-												)
-											: ''
-									}
-								/>
-								<input
-									className='h-11 rounded border border-border bg-background px-3 text-sm disabled:opacity-50'
-									placeholder={isFixedOrDispensable ? 'N/A (Asset)' : isBatchRequired ? 'Batch number (Req)' : 'Batch number'}
-									value={isFixedOrDispensable ? '' : line.batchNumber}
-									disabled={isFixedOrDispensable}
-									onChange={(e) =>
-										updateLine(index, { batchNumber: e.target.value })
-									}
-								/>
-								<label className='grid gap-1 text-xs text-muted-foreground'>
-									Expiry date {isFixedOrDispensable ? '(N/A)' : isExpiryRequired ? '(Req)' : '(Opt)'}
-									<input
-										className='h-11 rounded border border-border bg-background px-3 text-sm text-foreground disabled:opacity-50'
-										type='date'
-										aria-label='Expiry date, format DD/MM/YYYY'
-										title='Expiry date format: DD/MM/YYYY'
-										value={isFixedOrDispensable ? '' : line.expiryDate}
-										disabled={isFixedOrDispensable}
-										onChange={(e) =>
-											updateLine(index, { expiryDate: e.target.value })
-										}
-										required={isExpiryRequired}
-									/>
-									<span className='date-format-hint'>DD/MM/YYYY</span>
-								</label>
-								{showLineFundingSource && (
-									<select
-										className='h-11 min-w-0 rounded border border-border bg-background px-3 text-sm'
-										value={line.fundingSourceId}
-										onChange={(e) =>
-											updateLine(index, { fundingSourceId: e.target.value })
-										}
-									>
-										<option value=''>
-											{master?.fundingSources?.length
-												? 'Select funding source'
-												: 'No funding sources available'}
-										</option>
-										{master?.fundingSources?.map((source: any) => (
-											<option key={source.id} value={source.id}>
-												{source.name}
-											</option>
-										))}
-									</select>
-								)}
+								<div
+									className={cn(
+										'grid w-full min-w-0 items-start gap-3',
+										showLineFundingSource
+											? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7'
+											: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-6'
+									)}
+								>
+									<div className='col-span-1 min-w-0 sm:col-span-2 lg:col-span-2 2xl:col-span-1'>
+										<SearchableSelect
+											className='h-11 w-full min-w-0'
+											value={line.itemId}
+											onChange={(value) => updateLine(index, { itemId: value })}
+											options={items.map((item) => ({
+												value: item.id,
+												label: `${item.code} - ${item.description}`,
+											}))}
+											placeholder={
+												items.length
+													? 'Select item to receive'
+													: 'No active items available'
+											}
+										/>
+									</div>
+									<div className='min-w-0'>
+										<input
+											className='h-11 w-full min-w-0 rounded border border-border bg-background px-3 text-sm'
+											type='number'
+											min='1'
+											placeholder='Quantity'
+											value={line.quantityReceived}
+											onChange={(e) =>
+												updateLine(index, { quantityReceived: e.target.value })
+											}
+										/>
+									</div>
+									<div className='min-w-0'>
+										<input
+											className='h-11 w-full min-w-0 rounded border border-border bg-background px-3 text-sm'
+											type='number'
+											min='0'
+											step='0.01'
+											placeholder='Unit price'
+											value={line.unitPrice}
+											onChange={(e) =>
+												updateLine(index, { unitPrice: e.target.value })
+											}
+										/>
+									</div>
+									<div className='min-w-0'>
+										<input
+											className='h-11 w-full min-w-0 rounded border border-border bg-muted px-3 text-sm'
+											readOnly
+											placeholder='Total price'
+											value={
+												line.quantityReceived !== '' && line.unitPrice !== ''
+													? formatNumber(
+															numericValue(line.quantityReceived) *
+																numericValue(line.unitPrice),
+															2
+														)
+													: ''
+											}
+										/>
+									</div>
+									<div className='min-w-0'>
+										<input
+											className='h-11 w-full min-w-0 rounded border border-border bg-background px-3 text-sm disabled:opacity-50'
+											placeholder={isFixedOrDispensable ? 'N/A (Asset)' : isBatchRequired ? 'Batch number (Req)' : 'Batch number'}
+											value={isFixedOrDispensable ? '' : line.batchNumber}
+											disabled={isFixedOrDispensable}
+											onChange={(e) =>
+												updateLine(index, { batchNumber: e.target.value })
+											}
+										/>
+									</div>
+									<label className='grid min-w-0 gap-1 text-xs text-muted-foreground'>
+										Expiry date {isFixedOrDispensable ? '(N/A)' : isExpiryRequired ? '(Req)' : '(Opt)'}
+										<input
+											className='h-11 w-full min-w-0 rounded border border-border bg-background px-3 text-sm text-foreground disabled:opacity-50'
+											type='date'
+											aria-label='Expiry date, format DD/MM/YYYY'
+											title='Expiry date format: DD/MM/YYYY'
+											value={isFixedOrDispensable ? '' : line.expiryDate}
+											disabled={isFixedOrDispensable}
+											onChange={(e) =>
+												updateLine(index, { expiryDate: e.target.value })
+											}
+											required={isExpiryRequired}
+										/>
+										<span className='date-format-hint'>DD/MM/YYYY</span>
+									</label>
+									{showLineFundingSource && (
+										<div className='w-full min-w-0'>
+											<select
+												className='h-11 w-full min-w-0 max-w-full rounded border border-border bg-background px-3 text-sm truncate'
+												value={line.fundingSourceId}
+												onChange={(e) =>
+													updateLine(index, { fundingSourceId: e.target.value })
+												}
+											>
+												<option value=''>
+													{master?.fundingSources?.length
+														? 'Select funding source'
+														: 'No funding sources available'}
+												</option>
+												{master?.fundingSources?.map((source: any) => (
+													<option key={source.id} value={source.id}>
+														{source.name}
+													</option>
+												))}
+											</select>
+										</div>
+									)}
+								</div>
 							</div>
 							)
 						})}

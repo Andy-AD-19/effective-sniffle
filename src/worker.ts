@@ -945,9 +945,42 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 7. Items CRUD & Management
     if (path === "/items" && method === "GET") {
-      const q = url.searchParams.get("query")?.toLowerCase() || "";
+      const q = (url.searchParams.get("search") || url.searchParams.get("query") || "").toLowerCase().trim();
       const cat = url.searchParams.get("categoryId");
       const activeParam = url.searchParams.get("active");
+
+      // Query D1 if available
+      if (env.DB) {
+        try {
+          let sql = `SELECT * FROM Item WHERE 1=1`;
+          const params: any[] = [];
+          if (activeParam === "true") {
+            sql += ` AND active = 1`;
+          }
+          if (cat) {
+            sql += ` AND categoryId = ?`;
+            params.push(cat);
+          }
+          if (q) {
+            sql += ` AND (lower(code) LIKE ? OR lower(description) LIKE ?)`;
+            params.push(`%${q}%`, `%${q}%`);
+          }
+          sql += ` ORDER BY code ASC`;
+          const dbRes = await env.DB.prepare(sql).bind(...params).all<any>();
+          if (dbRes && dbRes.results && dbRes.results.length > 0) {
+            return jsonResponse({
+              items: dbRes.results.map(enrichItem),
+              total: dbRes.results.length,
+              page: 1,
+              pageSize: 1000
+            });
+          }
+        } catch (dbErr) {
+          console.warn("[D1 Items GET Error]", dbErr);
+        }
+      }
+
+      // Synchronized fallback
       let list = fallbackState.items;
       if (q) {
         list = list.filter(i => (i.code || "").toLowerCase().includes(q) || (i.description || "").toLowerCase().includes(q));
@@ -968,13 +1001,79 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path === "/items" && method === "POST") {
       const body = await request.json<any>();
+      if (!body.code || !body.description || !body.categoryId || !body.unitId) {
+        return jsonResponse({ message: "Code, description, category, and unit are required." }, 400);
+      }
       const newItem = {
-        id: uid("item"),
+        id: body.id || uid("item"),
         ...body,
-        active: true,
-        createdAt: new Date().toISOString()
+        active: body.active !== undefined ? body.active : true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
-      fallbackState.items.unshift(newItem);
+
+      // Always update in-memory state (deduplicate by code/id)
+      const existingIdx = fallbackState.items.findIndex(
+        i => (i.code && i.code.toLowerCase() === newItem.code.toLowerCase()) || i.id === newItem.id
+      );
+      if (existingIdx >= 0) {
+        fallbackState.items[existingIdx] = { ...fallbackState.items[existingIdx], ...newItem };
+      } else {
+        fallbackState.items.unshift(newItem);
+      }
+
+      // Persist to D1 Database if available
+      if (env.DB) {
+        try {
+          await env.DB.prepare(`
+            INSERT INTO Item (
+              id, code, gtin, description, kind, categoryId, subCategory, unitId,
+              defaultLocationId, reorderLevel, minimumStock, maximumStock, fundingSourceId,
+              batchTrackingRequired, expiryTrackingRequired, barcodeRequired, serialNumber,
+              modelNumber, depreciationRate, maintenanceCycle, departmentAssignmentId,
+              calibrationDueDate, active, createdAt, updatedAt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+            ON CONFLICT(code) DO UPDATE SET
+              description = excluded.description,
+              kind = excluded.kind,
+              categoryId = excluded.categoryId,
+              subCategory = excluded.subCategory,
+              unitId = excluded.unitId,
+              defaultLocationId = excluded.defaultLocationId,
+              reorderLevel = excluded.reorderLevel,
+              minimumStock = excluded.minimumStock,
+              maximumStock = excluded.maximumStock,
+              fundingSourceId = excluded.fundingSourceId,
+              updatedAt = datetime('now')
+          `).bind(
+            newItem.id,
+            newItem.code,
+            newItem.gtin || null,
+            newItem.description,
+            newItem.kind || "CONSUMABLE",
+            newItem.categoryId,
+            newItem.subCategory || null,
+            newItem.unitId,
+            newItem.defaultLocationId || null,
+            Number(newItem.reorderLevel) || 0,
+            Number(newItem.minimumStock) || 0,
+            Number(newItem.maximumStock) || 0,
+            newItem.fundingSourceId || null,
+            newItem.batchTrackingRequired ? 1 : 0,
+            newItem.expiryTrackingRequired ? 1 : 0,
+            newItem.barcodeRequired !== false ? 1 : 0,
+            newItem.serialNumber || null,
+            newItem.modelNumber || null,
+            newItem.depreciationRate != null ? Number(newItem.depreciationRate) : null,
+            newItem.maintenanceCycle || null,
+            newItem.departmentAssignmentId || null,
+            newItem.calibrationDueDate || null
+          ).run();
+        } catch (dbErr: any) {
+          console.warn("[D1 Item POST Error]", dbErr);
+        }
+      }
+
       return jsonResponse(enrichItem(newItem), 201);
     }
 
@@ -1266,6 +1365,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/items/") && path.endsWith("/deactivate") && method === "PATCH") {
       const id = path.split("/")[2];
+      if (env.DB) {
+        try {
+          await env.DB.prepare(`UPDATE Item SET active = 0, updatedAt = datetime('now') WHERE id = ?`).bind(id).run();
+        } catch (e) {}
+      }
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
       item.active = false;
@@ -1315,6 +1419,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/items/") && method === "GET") {
       const id = path.split("/")[2];
+      if (env.DB) {
+        try {
+          const dbItem = await env.DB.prepare(`SELECT * FROM Item WHERE id = ?`).bind(id).first<any>();
+          if (dbItem) return jsonResponse(enrichItem(dbItem));
+        } catch (e) {}
+      }
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
       return jsonResponse(enrichItem(item));
@@ -1323,6 +1433,35 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path.startsWith("/items/") && method === "PATCH") {
       const id = path.split("/")[2];
       const body = await request.json<any>();
+      if (env.DB) {
+        try {
+          await env.DB.prepare(`
+            UPDATE Item SET
+              description = coalesce(?, description),
+              unitId = coalesce(?, unitId),
+              categoryId = coalesce(?, categoryId),
+              subCategory = coalesce(?, subCategory),
+              defaultLocationId = coalesce(?, defaultLocationId),
+              fundingSourceId = coalesce(?, fundingSourceId),
+              reorderLevel = coalesce(?, reorderLevel),
+              minimumStock = coalesce(?, minimumStock),
+              maximumStock = coalesce(?, maximumStock),
+              updatedAt = datetime('now')
+            WHERE id = ?
+          `).bind(
+            body.description || null,
+            body.unitId || null,
+            body.categoryId || null,
+            body.subCategory || null,
+            body.defaultLocationId || null,
+            body.fundingSourceId || null,
+            body.reorderLevel != null ? Number(body.reorderLevel) : null,
+            body.minimumStock != null ? Number(body.minimumStock) : null,
+            body.maximumStock != null ? Number(body.maximumStock) : null,
+            id
+          ).run();
+        } catch (e) {}
+      }
       const idx = fallbackState.items.findIndex(i => i.id === id);
       if (idx === -1) return jsonResponse({ message: "Item not found" }, 404);
       fallbackState.items[idx] = { ...fallbackState.items[idx], ...body, updatedAt: new Date().toISOString() };

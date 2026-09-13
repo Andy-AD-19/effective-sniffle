@@ -41,8 +41,20 @@ export function SearchableSelect({
 	const [open, setOpen] = useState(false)
 	const [query, setQuery] = useState('')
 	const [activeIndex, setActiveIndex] = useState(0)
+	const [placement, setPlacement] = useState<{ flipUp: boolean; alignRight: boolean }>({ flipUp: false, alignRight: false })
 	const containerRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
+
+	useEffect(() => {
+		if (open && containerRef.current) {
+			const rect = containerRef.current.getBoundingClientRect()
+			const spaceBelow = window.innerHeight - rect.bottom
+			const spaceAbove = rect.top
+			const flipUp = spaceBelow < 280 && spaceAbove > spaceBelow
+			const alignRight = rect.left + 240 > window.innerWidth && rect.right > 240
+			setPlacement({ flipUp, alignRight })
+		}
+	}, [open])
 
 	const selected = options.find((option) => option.value === value)
 
@@ -123,7 +135,13 @@ export function SearchableSelect({
 				<ChevronDown size={14} className='shrink-0 text-muted-foreground' />
 			</button>
 			{open && (
-				<div className='absolute left-0 top-full z-40 mt-1 w-full min-w-[12rem] overflow-hidden rounded-lg border border-border bg-[hsl(var(--surface))] shadow-2xl'>
+				<div
+					className={cn(
+						'absolute z-50 w-full min-w-[14rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-[hsl(var(--surface))] shadow-2xl',
+						placement.flipUp ? 'bottom-full mb-1' : 'top-full mt-1',
+						placement.alignRight ? 'right-0' : 'left-0'
+					)}
+				>
 					<label className='relative block border-b border-border p-2'>
 						<Search
 							className='pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-primary'
