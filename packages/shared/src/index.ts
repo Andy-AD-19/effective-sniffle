@@ -40,6 +40,7 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
     permissions.USER_MANAGE,
     permissions.AUDIT_READ,
     permissions.ITEM_READ,
+    permissions.ITEM_DEACTIVATE,
     permissions.ISSUE_APPROVE,
     permissions.INSPECTION_WRITE,
     permissions.RETURN_CREATE,
@@ -54,6 +55,7 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
   STOREKEEPER: [
     permissions.ITEM_READ,
     permissions.ITEM_WRITE,
+    permissions.ITEM_DEACTIVATE,
     permissions.RECEIPT_WRITE,
     permissions.STORAGE_WRITE,
     permissions.ISSUE_EXECUTE,
@@ -124,16 +126,7 @@ export const reportTypes = [
 export type ReportType = (typeof reportTypes)[number];
 
 export const roleReportTypes: Record<RoleName, ReportType[]> = {
-  SYSTEM_ADMINISTRATOR: [
-    "stock-status",
-    "issue",
-    "balance",
-    "disposal",
-    "physical-count",
-    "reconciliation-adjustment",
-    "asset-custody",
-    "audit-log"
-  ],
+  SYSTEM_ADMINISTRATOR: [...reportTypes],
   STOREKEEPER: [
     "stock-status",
     "receipt",
