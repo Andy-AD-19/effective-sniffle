@@ -8,20 +8,22 @@ export class IssueService {
   constructor(private readonly prisma: PrismaService, private readonly ledger: LedgerService, private readonly audit: AuditService) {}
 
   async create(actorId: string, input: any) {
+    const actor = await this.prisma.user.findUniqueOrThrow({ where: { id: actorId } });
     const itemIds = input.lines.map((line: any) => line.itemId);
     const activeItems = await this.prisma.item.count({ where: { id: { in: itemIds }, active: true } });
     if (activeItems !== new Set(itemIds).size) {
       throw new BadRequestException("Stock requests only allow active items from the Item Master");
     }
-    const recipientName = input.recipientName?.trim();
-    if (!recipientName) {
-      throw new BadRequestException("Recipient Name (the person receiving/certifying the items) is required");
+    const recipientName = input.recipientName?.trim() || actor.fullName || actor.email;
+    const departmentId = actor.role === "SYSTEM_ADMINISTRATOR" ? input.departmentId : (actor.departmentId ?? input.departmentId);
+    if (!departmentId) {
+      throw new BadRequestException("A valid department is required for stock requisitions");
     }
     const request = await this.prisma.issueRequest.create({
       data: {
         requestNumber: await this.nextRequestNumber(),
         requesterId: actorId,
-        departmentId: input.departmentId,
+        departmentId,
         recipientName,
         purpose: input.purpose,
         status: "PENDING_APPROVAL",
@@ -194,10 +196,18 @@ export class IssueService {
   }
 
   async acknowledgeReceipt(actorId: string, id: string, notes?: string) {
+    const actor = await this.prisma.user.findUniqueOrThrow({ where: { id: actorId } });
     const request = await this.prisma.issueRequest.findUniqueOrThrow({
       where: { id },
       include: { voucher: true, materialReceipt: true }
     });
+    if (
+      actor.role !== "SYSTEM_ADMINISTRATOR" &&
+      actorId !== request.requesterId &&
+      (!actor.departmentId || actor.departmentId !== request.departmentId)
+    ) {
+      throw new BadRequestException("You can only acknowledge receipt for requests belonging to your own department");
+    }
     if (request.status !== "ISSUED" && request.status !== "PARTIALLY_ISSUED") throw new BadRequestException("Only issued requests can be received by a department");
     if (!request.voucher) throw new BadRequestException("Request has no store issue voucher");
     if (request.materialReceipt) return this.findOne(id);

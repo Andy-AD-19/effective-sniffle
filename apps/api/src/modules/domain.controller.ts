@@ -529,6 +529,12 @@ export class DomainController {
     return this.disposals.approve(user.sub, id, body);
   }
 
+  @Post("disposals/:id/reject")
+  @RequirePermissions(permissions.DISPOSAL_APPROVE)
+  rejectDisposal(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+    return this.disposals.reject(user.sub, id, body);
+  }
+
   @Post("disposals/:id/dispose")
   @RequirePermissions(permissions.DISPOSAL_WRITE)
   dispose(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {

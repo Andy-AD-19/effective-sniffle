@@ -35,10 +35,21 @@ export class DisposalService {
   async approve(actorId: string, id: string, input: any) {
     const disposal = await this.prisma.disposalRequest.update({
       where: { id },
-      data: { status: "APPROVED", committeeNotes: input.committeeNotes },
+      data: { status: "APPROVED", committeeNotes: input.committeeNotes ?? input.notes },
       include: { lines: true }
     });
     await this.audit.record({ actorId, action: "disposal.approve", entityType: "DisposalRequest", entityId: id, after: disposal });
+    return disposal;
+  }
+
+  async reject(actorId: string, id: string, input: any) {
+    const reason = input?.reason?.trim() ?? input?.notes?.trim() ?? "Disposal request rejected by Approver";
+    const disposal = await this.prisma.disposalRequest.update({
+      where: { id },
+      data: { status: "REJECTED", committeeNotes: reason },
+      include: { lines: true }
+    });
+    await this.audit.record({ actorId, action: "disposal.reject", entityType: "DisposalRequest", entityId: id, after: disposal });
     return disposal;
   }
 

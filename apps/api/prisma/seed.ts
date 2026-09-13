@@ -19,7 +19,6 @@ async function main() {
   }
 
   const users = [
-    ["admin@example.com", "Default Administrator", RoleName.SYSTEM_ADMINISTRATOR, null],
     ["admin@fmoh.local", "Amina Yusuf", RoleName.SYSTEM_ADMINISTRATOR, null],
     ["storekeeper@fmoh.local", "Musa Bello", RoleName.STOREKEEPER, logistics.id],
     ["requester@fmoh.local", "Grace Okoro", RoleName.DEPARTMENT_USER, administration.id],
@@ -29,7 +28,7 @@ async function main() {
   ] as const;
 
   for (const [email, fullName, role, departmentId] of users) {
-    const userPasswordHash = await bcrypt.hash(email === "admin@example.com" ? "Admin12345!" : "Password123!", 10);
+    const userPasswordHash = await bcrypt.hash("Password123!", 10);
     await prisma.user.upsert({
       where: { email },
       update: { passwordHash: userPasswordHash, role, fullName },

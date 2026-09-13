@@ -27,13 +27,17 @@ export class UsersService {
   async create(actorId: string, input: any) {
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) throw new BadRequestException("Email already exists");
+    const password = input.password?.trim();
+    if (!password || password.length < 8) {
+      throw new BadRequestException("Password is required and must be at least 8 characters long");
+    }
     const user = await this.prisma.user.create({
       data: {
         email: input.email,
         fullName: input.fullName,
         role: input.role as RoleName,
         departmentId: input.departmentId,
-        passwordHash: await bcrypt.hash(input.password ?? "Password123!", 10)
+        passwordHash: await bcrypt.hash(password, 10)
       },
       include: { department: true }
     });
@@ -50,7 +54,12 @@ export class UsersService {
       active: input.active,
       department: input.departmentId === undefined ? undefined : input.departmentId ? { connect: { id: input.departmentId } } : { disconnect: true }
     };
-    if (input.password) data.passwordHash = await bcrypt.hash(input.password, 10);
+    if (input.password) {
+      if (input.password.trim().length < 8) {
+        throw new BadRequestException("Password must be at least 8 characters long");
+      }
+      data.passwordHash = await bcrypt.hash(input.password.trim(), 10);
+    }
     const user = await this.prisma.user.update({ where: { id }, data, include: { department: true } });
     await this.audit.record({ actorId, action: "user.update", entityType: "User", entityId: id, before, after: user });
     return user;

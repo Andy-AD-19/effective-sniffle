@@ -54,7 +54,7 @@ export class MasterDataService {
   }
 
   private normalize(model: MasterModel, input: any, partial = false) {
-    if (model === "unitOfMeasure") return { name: input.name, symbol: input.symbol ?? input.name?.slice(0, 4), active: input.active };
+    if (model === "unitOfMeasure") return { name: input.name, symbol: input.symbol ?? input.name?.slice(0, 4) };
     if (model === "storeLocation" || model === "department") return { name: input.name, code: input.code ?? input.name?.slice(0, 4).toUpperCase(), active: input.active };
     if (model === "supplierDonor") return { name: input.name, type: input.type ?? "PROCUREMENT", contact: input.contact, active: input.active };
     if (model === "disposalReason") return { name: input.name, description: input.description, active: input.active };
