@@ -78,11 +78,11 @@ const fallbackState = {
     { id: "dept-eng", name: "Biomedical Engineering", code: "ENG", active: 1 }
   ],
   categories: [
-    { id: "cat-med", name: "Pharmaceuticals & Medicines", description: "Essential medicines and clinical pharmaceuticals", active: 1 },
-    { id: "cat-sup", name: "Medical Supplies", description: "Consumable clinical supplies and surgical disposables", active: 1 },
-    { id: "cat-lab", name: "Laboratory Reagents", description: "Diagnostic test kits and reagents", active: 1 },
-    { id: "cat-off", name: "Office Supplies", description: "Administrative consumables and stationeries", active: 1 },
-    { id: "cat-eqp", name: "Medical Equipment", description: "Durable medical and hospital devices", active: 1 }
+    { id: "cat-veh", name: "Vehicles & Fleet Management", description: "Institutional transport, ambulances, motorcycles, and field utility vehicles", active: 1 },
+    { id: "cat-eqp", name: "Facility & Medical Heavy Equipment", description: "Durable biomedical, cold chain, generators, and electrical equipment", active: 1 },
+    { id: "cat-fur", name: "Office & Facility Furniture", description: "Hospital beds, desks, steel filing cabinets, and ergonomic furniture", active: 1 },
+    { id: "cat-it", name: "IT & Office Automation", description: "Computing workstations, laptops, server racks, and printers", active: 1 },
+    { id: "cat-sup", name: "General Maintenance & Operational Supplies", description: "Precision toolkits, screwdrivers, safety gear, and hardware", active: 1 }
   ],
   unitsOfMeasure: [
     { id: "unit-box", name: "Box", symbol: "box", active: 1 },
@@ -104,22 +104,22 @@ const fallbackState = {
     { id: "fund-fed", name: "Federal Allocation", active: 1 }
   ],
   stores: [
-    { id: "store-main", name: "Central Medical Store", code: "MAIN", active: 1 },
-    { id: "store-cms", name: "Main Store", code: "CMS", active: 1 },
-    { id: "store-cold", name: "Cold Chain Facility", code: "COLD", active: 1 },
-    { id: "store-pha", name: "Emergency Pharmacy Store", code: "EMRG", active: 1 },
+    { id: "store-main", name: "Main Logistics & Central Store", code: "MAIN", active: 1 },
+    { id: "store-fleet", name: "Fleet Workshop & Motor Pool", code: "FLEET", active: 1 },
+    { id: "store-cold", name: "Cold Chain Logistics Facility", code: "COLD", active: 1 },
+    { id: "store-gen", name: "General Asset & Maintenance Depot", code: "ASSET", active: 1 },
     { id: "store-ret", name: "Returned Items Location", code: "RETURNED", active: 1 }
   ],
   storageLocations: [
-    { id: "loc-01", storeId: "store-main", locationCode: "MAIN-A1-01", roomOrZone: "Zone A", shelfNumber: "1", rackNumber: "R1", binNumber: "01", description: "Main Store, Zone A, Shelf 1, Bin 1", isActive: 1 },
-    { id: "loc-02", storeId: "store-main", locationCode: "MAIN-A1-02", roomOrZone: "Zone A", shelfNumber: "1", rackNumber: "R1", binNumber: "02", description: "Main Store, Zone A, Shelf 1, Bin 2", isActive: 1 },
+    { id: "loc-01", storeId: "store-main", locationCode: "MAIN-A1-01", roomOrZone: "Zone A", shelfNumber: "1", rackNumber: "R1", binNumber: "01", description: "Main Store, Zone A, Bay 1", isActive: 1 },
+    { id: "loc-02", storeId: "store-fleet", locationCode: "FLEET-B1-01", roomOrZone: "Motor Pool", shelfNumber: "1", rackNumber: "B1", binNumber: "01", description: "Fleet Workshop Bay 1", isActive: 1 },
     { id: "loc-03", storeId: "store-cold", locationCode: "COLD-C1-01", roomOrZone: "Cold Room", shelfNumber: "1", rackNumber: "C1", binNumber: "01", description: "Cold Chain Room 1, Rack 1", isActive: 1 },
-    { id: "loc-04", storeId: "store-pha", locationCode: "EMRG-E1-01", roomOrZone: "Emergency", shelfNumber: "1", rackNumber: "E1", binNumber: "01", description: "Emergency Pharmacy Bin 1", isActive: 1 }
+    { id: "loc-04", storeId: "store-gen", locationCode: "ASSET-D1-01", roomOrZone: "Depot A", shelfNumber: "1", rackNumber: "D1", binNumber: "01", description: "Asset Depot Bay 1", isActive: 1 }
   ],
   suppliers: [
-    { id: "sup-01", name: "National Pharmaceutical Supply Agency", type: "GOVERNMENT_SUPPLIER", contact: "contact@epss.gov.et", active: 1 },
-    { id: "sup-02", name: "UNICEF Supply Division", type: "DONOR", contact: "supply@unicef.org", active: 1 },
-    { id: "sup-03", name: "Global Health Logistics Ltd", type: "VENDOR", contact: "sales@ghlogistics.com", active: 1 }
+    { id: "sup-01", name: "Federal Logistics & Procurement Authority", type: "GOVERNMENT_SUPPLIER", contact: "logistics@fmoh.gov.et", active: 1 },
+    { id: "sup-02", name: "UNICEF Supply & Logistics Division", type: "DONOR", contact: "supply@unicef.org", active: 1 },
+    { id: "sup-03", name: "Global Automotive & Equipment Supplies Ltd", type: "VENDOR", contact: "sales@autoequip.com", active: 1 }
   ],
   disposalReasons: [
     { id: "disp-01", name: "Expired", description: "Past manufacturer expiration date", active: 1 },
@@ -132,94 +132,144 @@ const fallbackState = {
   ],
   items: [
     {
-      id: "item-amox",
-      code: "MED-AMOX-500",
-      gtin: "08435123450012",
-      description: "Amoxicillin 500mg Capsules",
-      kind: "CONSUMABLE",
-      categoryId: "cat-med",
-      unitId: "unit-box",
-      defaultLocationId: "loc-01",
-      reorderLevel: 50,
-      minimumStock: 20,
-      maximumStock: 500,
-      fundingSourceId: "fund-gov",
-      batchTrackingRequired: true,
-      expiryTrackingRequired: true,
-      barcodeRequired: true,
-      active: true,
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: "item-para",
-      code: "MED-PARA-500",
-      gtin: "08435123450029",
-      description: "Paracetamol 500mg Tablets",
-      kind: "CONSUMABLE",
-      categoryId: "cat-med",
-      unitId: "unit-box",
-      defaultLocationId: "loc-01",
-      reorderLevel: 100,
-      minimumStock: 50,
-      maximumStock: 1000,
-      fundingSourceId: "fund-gov",
-      batchTrackingRequired: true,
-      expiryTrackingRequired: true,
-      barcodeRequired: true,
-      active: true,
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: "item-syr",
-      code: "SUP-SYR-5ML",
-      gtin: "08435123450036",
-      description: "Sterile Disposable Syringes 5ml with Needle",
-      kind: "CONSUMABLE",
-      categoryId: "cat-sup",
-      unitId: "unit-box",
+      id: "item-amb-01",
+      code: "VEH-AMB-01",
+      gtin: "ET-AMB-2026-001",
+      description: "Toyota Land Cruiser 4WD Field Ambulance",
+      kind: "FIXED_ASSET",
+      categoryId: "cat-veh",
+      unitId: "unit-ea",
       defaultLocationId: "loc-02",
-      reorderLevel: 200,
-      minimumStock: 100,
-      maximumStock: 2000,
-      fundingSourceId: "fund-glo",
-      batchTrackingRequired: true,
-      expiryTrackingRequired: false,
-      barcodeRequired: true,
-      active: true,
-      createdAt: new Date().toISOString()
-    },
-    {
-      id: "item-gloves",
-      code: "SUP-GLV-EXAM",
-      gtin: "08435123450043",
-      description: "Nitrile Examination Gloves Medium (Box of 100)",
-      kind: "CONSUMABLE",
-      categoryId: "cat-sup",
-      unitId: "unit-box",
-      defaultLocationId: "loc-02",
-      reorderLevel: 150,
-      minimumStock: 50,
-      maximumStock: 1500,
-      fundingSourceId: "fund-usa",
+      reorderLevel: 2,
+      minimumStock: 1,
+      maximumStock: 10,
+      fundingSourceId: "fund-fed",
       batchTrackingRequired: false,
       expiryTrackingRequired: false,
       barcodeRequired: true,
+      serialNumber: "TLC-HZJ78-904128",
+      modelNumber: "HZJ78 Hardtop 4x4",
       active: true,
       createdAt: new Date().toISOString()
     },
     {
-      id: "item-oxim",
-      code: "EQP-PULSE-OX",
-      gtin: "08435123450050",
-      description: "Handheld Digital Pulse Oximeter",
+      id: "item-mtc-02",
+      code: "VEH-MTC-02",
+      gtin: "ET-MTC-2026-002",
+      description: "Yamaha AG200 Field Inspection Motorcycle",
+      kind: "FIXED_ASSET",
+      categoryId: "cat-veh",
+      unitId: "unit-ea",
+      defaultLocationId: "loc-02",
+      reorderLevel: 3,
+      minimumStock: 2,
+      maximumStock: 20,
+      fundingSourceId: "fund-who",
+      batchTrackingRequired: false,
+      expiryTrackingRequired: false,
+      barcodeRequired: true,
+      serialNumber: "YAM-AG200-88319",
+      modelNumber: "AG200F",
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "item-gen-15kva",
+      code: "EQP-GEN-15KVA",
+      gtin: "ET-GEN-2026-003",
+      description: "15kVA Standby Diesel Generator Set",
       kind: "FIXED_ASSET",
       categoryId: "cat-eqp",
       unitId: "unit-ea",
       defaultLocationId: "loc-01",
+      reorderLevel: 2,
+      minimumStock: 1,
+      maximumStock: 8,
+      fundingSourceId: "fund-glo",
+      batchTrackingRequired: false,
+      expiryTrackingRequired: false,
+      barcodeRequired: true,
+      serialNumber: "PRM-15KVA-44910",
+      modelNumber: "P-15D",
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "item-ref-sdd",
+      code: "EQP-REF-SDD",
+      gtin: "ET-REF-2026-004",
+      description: "Solar Direct Drive Cold Chain Vaccine Refrigerator",
+      kind: "FIXED_ASSET",
+      categoryId: "cat-eqp",
+      unitId: "unit-ea",
+      defaultLocationId: "loc-03",
+      reorderLevel: 4,
+      minimumStock: 2,
+      maximumStock: 15,
+      fundingSourceId: "fund-glo",
+      batchTrackingRequired: false,
+      expiryTrackingRequired: false,
+      barcodeRequired: true,
+      serialNumber: "SDD-BPI-9921",
+      modelNumber: "TCW 40 SDD",
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "item-bed-hyd",
+      code: "FUR-BED-HYD",
+      gtin: "ET-FUR-2026-005",
+      description: "Adjustable Hydraulic Patient Examination Bed",
+      kind: "FIXED_ASSET",
+      categoryId: "cat-fur",
+      unitId: "unit-ea",
+      defaultLocationId: "loc-04",
+      reorderLevel: 5,
+      minimumStock: 3,
+      maximumStock: 30,
+      fundingSourceId: "fund-fed",
+      batchTrackingRequired: false,
+      expiryTrackingRequired: false,
+      barcodeRequired: true,
+      serialNumber: "MED-BED-3301",
+      modelNumber: "HYD-EX-2",
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "item-tool-mnt",
+      code: "SUP-TOOL-MNT",
+      gtin: "ET-SUP-2026-006",
+      description: "Heavy-Duty Precision Screwdriver & Maintenance Toolkit",
+      kind: "GENERAL_SUPPLY",
+      categoryId: "cat-sup",
+      unitId: "unit-set",
+      defaultLocationId: "loc-01",
       reorderLevel: 10,
       minimumStock: 5,
-      maximumStock: 50,
-      fundingSourceId: "fund-who",
+      maximumStock: 60,
+      fundingSourceId: "fund-fed",
+      batchTrackingRequired: false,
+      expiryTrackingRequired: false,
+      barcodeRequired: true,
+      serialNumber: "",
+      modelNumber: "TS-108PC",
+      active: true,
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "item-screw",
+      code: "2",
+      gtin: "ET-TOOL-002",
+      description: "Screw driver",
+      kind: "GENERAL_SUPPLY",
+      categoryId: "cat-sup",
+      unitId: "unit-pc",
+      defaultLocationId: "loc-01",
+      reorderLevel: 15,
+      minimumStock: 5,
+      maximumStock: 100,
+      fundingSourceId: "fund-fed",
       batchTrackingRequired: false,
       expiryTrackingRequired: false,
       barcodeRequired: true,
@@ -227,7 +277,18 @@ const fallbackState = {
       createdAt: new Date().toISOString()
     }
   ],
-  assetCustody: [] as any[],
+  assetCustody: [
+    {
+      id: "cst-01",
+      itemId: "item-amb-01",
+      custodianName: "Abebe Kebede",
+      custodianDepartmentId: "dept-log",
+      status: "ASSIGNED",
+      condition: "GOOD",
+      assignedAt: new Date().toISOString(),
+      notes: "Assigned to Emergency Medical Response Fleet Unit 1"
+    }
+  ],
   receipts: [] as any[],
   issues: [] as any[],
   returns: [] as any[],
@@ -245,35 +306,35 @@ const fallbackState = {
 (function seedInitialStock() {
   const initialBatches = [
     {
-      id: "batch-amox-01",
-      itemId: "item-amox",
-      batchNumber: "AMX-2026-01",
-      expiryDate: "2027-12-31",
-      unitCost: 15.5,
-      totalAcceptedQuantity: 300,
-      remainingQuantity: 250,
+      id: "batch-amb-01",
+      itemId: "item-amb-01",
+      batchNumber: "FLEET-2026-01",
+      expiryDate: "",
+      unitCost: 85000.0,
+      totalAcceptedQuantity: 4,
+      remainingQuantity: 1,
       status: "AVAILABLE",
       createdAt: new Date().toISOString()
     },
     {
-      id: "batch-para-01",
-      itemId: "item-para",
-      batchNumber: "PAR-2026-01",
-      expiryDate: "2028-06-30",
-      unitCost: 8.0,
-      totalAcceptedQuantity: 500,
-      remainingQuantity: 450,
+      id: "batch-gen-01",
+      itemId: "item-gen-15kva",
+      batchNumber: "EQP-2026-01",
+      expiryDate: "",
+      unitCost: 12500.0,
+      totalAcceptedQuantity: 5,
+      remainingQuantity: 2,
       status: "AVAILABLE",
       createdAt: new Date().toISOString()
     },
     {
-      id: "batch-syr-01",
-      itemId: "item-syr",
-      batchNumber: "SYR-2026-01",
-      expiryDate: "2029-01-01",
-      unitCost: 12.0,
-      totalAcceptedQuantity: 1000,
-      remainingQuantity: 800,
+      id: "batch-screw-01",
+      itemId: "item-screw",
+      batchNumber: "MNT-2026-01",
+      expiryDate: "",
+      unitCost: 18.5,
+      totalAcceptedQuantity: 50,
+      remainingQuantity: 40,
       status: "AVAILABLE",
       createdAt: new Date().toISOString()
     }
@@ -284,50 +345,62 @@ const fallbackState = {
   fallbackState.balances = [
     {
       id: "bal-01",
-      itemId: "item-amox",
-      batchId: "batch-amox-01",
-      storeId: "store-main",
-      storageLocationId: "loc-01",
-      quantityOnHand: 250,
+      itemId: "item-amb-01",
+      batchId: "batch-amb-01",
+      storeId: "store-fleet",
+      storageLocationId: "loc-02",
+      quantityOnHand: 4,
       quantityReserved: 0,
-      quantityAvailable: 250,
-      unitCost: 15.5
+      quantityAvailable: 4,
+      unitCost: 85000.0
     },
     {
       id: "bal-02",
-      itemId: "item-para",
-      batchId: "batch-para-01",
+      itemId: "item-gen-15kva",
+      batchId: "batch-gen-01",
       storeId: "store-main",
       storageLocationId: "loc-01",
-      quantityOnHand: 450,
+      quantityOnHand: 5,
       quantityReserved: 0,
-      quantityAvailable: 450,
-      unitCost: 8.0
+      quantityAvailable: 5,
+      unitCost: 12500.0
     },
     {
       id: "bal-03",
-      itemId: "item-syr",
-      batchId: "batch-syr-01",
+      itemId: "item-screw",
+      batchId: "batch-screw-01",
       storeId: "store-main",
-      storageLocationId: "loc-02",
-      quantityOnHand: 800,
+      storageLocationId: "loc-01",
+      quantityOnHand: 40,
       quantityReserved: 0,
-      quantityAvailable: 800,
-      unitCost: 12.0
+      quantityAvailable: 40,
+      unitCost: 18.5
     }
   ];
 
   fallbackState.ledger = [
     {
       id: "led-init-1",
-      itemId: "item-amox",
+      itemId: "item-amb-01",
       entryType: "RECEIPT",
-      quantityIn: 300,
-      quantityOut: 50,
-      balanceAfter: 250,
-      unitPrice: 15.5,
+      quantityIn: 4,
+      quantityOut: 0,
+      balanceAfter: 4,
+      unitPrice: 85000.0,
       referenceType: "GRN",
-      referenceId: "GRN-INITIAL",
+      referenceId: "GRN-FLEET-001",
+      createdAt: new Date().toISOString()
+    },
+    {
+      id: "led-init-2",
+      itemId: "item-screw",
+      entryType: "RECEIPT",
+      quantityIn: 50,
+      quantityOut: 10,
+      balanceAfter: 40,
+      unitPrice: 18.5,
+      referenceType: "GRN",
+      referenceId: "GRN-MNT-002",
       createdAt: new Date().toISOString()
     }
   ];
@@ -578,10 +651,24 @@ function enrichItem(item: any): any {
 
 function findItem(itemId: string): any {
   if (!itemId) return null;
-  const direct = fallbackState.items.find(i => i.id === itemId || (i.code && i.code.toLowerCase() === itemId.toLowerCase()));
+  const raw = String(itemId).trim();
+  const rawLower = raw.toLowerCase();
+  const unslugged = rawLower.startsWith("item-") ? rawLower.slice(5) : rawLower;
+
+  const direct = fallbackState.items.find(i => 
+    i.id === raw || 
+    (i.id && i.id.toLowerCase() === rawLower) ||
+    (i.code && i.code.toLowerCase() === rawLower) ||
+    (i.code && i.code.toLowerCase() === unslugged) ||
+    (i.id && i.id.toLowerCase().replace(/^item-/, "") === unslugged)
+  );
   if (direct) return enrichItem(direct);
-  const normId = `item-${itemId.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
-  const byNorm = fallbackState.items.find(i => i.id === normId);
+
+  const normId = `item-${rawLower.replace(/[^a-z0-9]/g, "-")}`;
+  const byNorm = fallbackState.items.find(i => 
+    i.id === normId || 
+    (i.code && i.code.toLowerCase() === normId.replace(/^item-/, ""))
+  );
   if (byNorm) return enrichItem(byNorm);
   return null;
 }
@@ -594,7 +681,7 @@ function enrichBatch(batch: any): any {
     item: item || {
       id: batch.itemId,
       code: batch.itemCode || batch.itemId,
-      description: batch.itemDescription || batch.itemId
+      description: batch.itemDescription || (batch.itemCode ? `Item ${batch.itemCode}` : "Institutional Item")
     }
   };
 }
@@ -611,7 +698,7 @@ function enrichBalance(balance: any): any {
     item: item || {
       id: balance.itemId,
       code: balance.itemId,
-      description: balance.itemId
+      description: balance.itemDescription || (balance.itemId ? `Item ${String(balance.itemId).replace(/^item-/, "")}` : "Institutional Item")
     },
     batch: batch ? enrichBatch(batch) : (balance.batch || { id: balance.batchId, batchNumber: balance.batchNumber || "N/A" }),
     store: store || { id: balance.storeId, name: "Main Store" },
@@ -655,7 +742,7 @@ function enrichReceipt(receipt: any): any {
       item: item || {
         id: line.itemId,
         code: line.itemId,
-        description: line.itemDescription || line.itemId
+        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
       },
       fundingSource,
       inspection,
@@ -1555,15 +1642,25 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/items/") && method === "GET") {
       const id = path.split("/")[2];
+      const unslugged = id.startsWith("item-") ? id.slice(5) : id;
       if (env.DB) {
         try {
-          const dbItem = await env.DB.prepare(`SELECT * FROM Item WHERE id = ?`).bind(id).first<any>();
+          const dbItem = await env.DB.prepare(`
+            SELECT * FROM Item 
+            WHERE id = ? 
+               OR code = ? 
+               OR lower(code) = lower(?) 
+               OR lower(code) = lower(?)
+               OR id = ?
+               OR replace(lower(id), 'item-', '') = lower(?)
+            LIMIT 1
+          `).bind(id, id, id, unslugged, `item-${id}`, unslugged).first<any>();
           if (dbItem) return jsonResponse(enrichItem(dbItem));
         } catch (e) {}
       }
-      const item = fallbackState.items.find(i => i.id === id);
+      const item = findItem(id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
-      return jsonResponse(enrichItem(item));
+      return jsonResponse(item);
     }
 
     if (path.startsWith("/items/") && method === "PATCH") {
@@ -2152,10 +2249,24 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const belowMinimum = stockByItem.filter(({ item, quantity }) => item.minimumStock && quantity < Number(item.minimumStock));
       const dueForReorder = lowStock;
 
-      // Pending counts
+      // Pending counts & operational queues
       const pendingInspectionCount = receipts.filter(r => r.status === "PENDING_INSPECTION" || (r.lines && r.lines.some((l: any) => !l.inspection && l.quantityAccepted === undefined))).length;
       const pendingStorageAllocation = batches.filter(b => Number(b.remainingQuantity || 0) > 0).length;
       const pendingApprovalCount = issues.filter(i => i.status === "PENDING_APPROVAL").length;
+      const pendingDisposalsCount = fallbackState.disposals.filter(d => d.status === "PENDING_APPROVAL" || d.status === "DRAFT").length;
+      const totalCustodyAssigned = fallbackState.assetCustody.filter(c => c.status === "ASSIGNED").length;
+
+      // Vehicles / Fleet metrics
+      const vehicleItems = activeItems.filter(i => i.categoryId === "cat-veh");
+      const totalVehicles = vehicleItems.length;
+      const vehicleIds = new Set(vehicleItems.map(v => v.id));
+      const assignedVehicles = fallbackState.assetCustody.filter(c => 
+        c.status === "ASSIGNED" && (vehicleIds.has(c.itemId) || vehicleItems.some(v => v.code === c.itemId))
+      ).length;
+      const maintenanceVehicles = fallbackState.assetCustody.filter(c => 
+        c.status === "MAINTENANCE" && (vehicleIds.has(c.itemId) || vehicleItems.some(v => v.code === c.itemId))
+      ).length;
+      const availableVehicles = Math.max(0, totalVehicles - assignedVehicles - maintenanceVehicles);
 
       // Monthly consumption from ledger issue entries
       const monthlyBuckets: Record<string, number> = {};
@@ -2223,6 +2334,15 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         pendingInspectionCount,
         pendingStorageAllocation,
         pendingApprovalCount,
+        pendingApprovalsCount: pendingApprovalCount,
+        pendingDisposalsCount,
+        totalCustodyAssigned,
+        vehicles: {
+          total: totalVehicles,
+          available: availableVehicles,
+          assigned: assignedVehicles,
+          maintenance: maintenanceVehicles
+        },
         monthlyConsumption,
         fastMoving,
         slowMoving,

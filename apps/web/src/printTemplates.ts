@@ -168,7 +168,9 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
     const totalBirr = Math.floor(lineTotal);
     const totalCents = Math.round((lineTotal - totalBirr) * 100);
 
-    const desc = escapeHtml(item.description ?? item.code ?? "Item");
+    const rawDesc = item.description ?? item.code ?? "Institutional Item";
+    const cleanDesc = (typeof rawDesc === "string" && rawDesc.startsWith("item-")) ? `Item ${rawDesc.slice(5)}` : rawDesc;
+    const desc = escapeHtml(cleanDesc);
     const model = escapeHtml(item.modelNumber ?? "—");
     const serial = escapeHtml(item.serialNumber ?? line.batchNumber ?? "—");
     const seqFrom = "1";
@@ -1050,7 +1052,9 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
     const totalBirr = Math.floor(lineTotal);
     const totalCents = Math.round((lineTotal - totalBirr) * 100);
 
-    const desc = escapeHtml(item.description ?? item.code ?? "Item");
+    const rawDesc = item.description ?? item.code ?? "Institutional Item";
+    const cleanDesc = (typeof rawDesc === "string" && rawDesc.startsWith("item-")) ? `Item ${rawDesc.slice(5)}` : rawDesc;
+    const desc = escapeHtml(cleanDesc);
     const model = escapeHtml(item.modelNumber ?? "—");
     const serial = escapeHtml(line.batchNumber ?? item.serialNumber ?? "—");
     const pageFrom = "1";
