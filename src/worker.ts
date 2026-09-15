@@ -546,13 +546,127 @@ function enrichItem(item: any): any {
   const category = fallbackState.categories.find(c => c.id === item.categoryId) || (item.category && typeof item.category === "object" ? item.category : null);
   const fundingSource = fallbackState.fundingSources.find(f => f.id === item.fundingSourceId) || (item.fundingSource && typeof item.fundingSource === "object" ? item.fundingSource : null);
   const defaultLocation = fallbackState.stores.find(s => s.id === item.defaultLocationId) || (item.defaultLocation && typeof item.defaultLocation === "object" ? item.defaultLocation : null);
+
+  // Calculate currentStock from balances
+  const itemBalances = fallbackState.balances.filter(b => b.itemId === validId || b.itemId === item.id || (item.code && b.itemId === item.code));
+  const currentStock = itemBalances.reduce((sum, b) => sum + Number(b.quantityOnHand ?? b.quantityAvailable ?? 0), 0);
+
+  let stockStatus = "NORMAL";
+  if (!itemBalances.length && currentStock === 0) {
+    stockStatus = "NOT_RECEIVED";
+  } else if (currentStock === 0) {
+    stockStatus = "STOCK_OUT";
+  } else if (item.minimumStock && currentStock < Number(item.minimumStock)) {
+    stockStatus = "BELOW_MINIMUM";
+  } else if (item.reorderLevel && currentStock <= Number(item.reorderLevel)) {
+    stockStatus = "LOW_STOCK";
+  } else if (item.maximumStock && currentStock > Number(item.maximumStock)) {
+    stockStatus = "OVERSTOCK";
+  }
+
   return {
     ...item,
     id: validId,
     unit,
     category,
     fundingSource,
-    defaultLocation
+    defaultLocation,
+    currentStock,
+    stockStatus
+  };
+}
+
+function findItem(itemId: string): any {
+  if (!itemId) return null;
+  const direct = fallbackState.items.find(i => i.id === itemId || (i.code && i.code.toLowerCase() === itemId.toLowerCase()));
+  if (direct) return enrichItem(direct);
+  const normId = `item-${itemId.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+  const byNorm = fallbackState.items.find(i => i.id === normId);
+  if (byNorm) return enrichItem(byNorm);
+  return null;
+}
+
+function enrichBatch(batch: any): any {
+  if (!batch) return batch;
+  const item = findItem(batch.itemId);
+  return {
+    ...batch,
+    item: item || {
+      id: batch.itemId,
+      code: batch.itemCode || batch.itemId,
+      description: batch.itemDescription || batch.itemId
+    }
+  };
+}
+
+function enrichBalance(balance: any): any {
+  if (!balance) return balance;
+  const item = findItem(balance.itemId);
+  const batch = fallbackState.batches.find(b => b.id === balance.batchId) || null;
+  const store = fallbackState.stores.find(s => s.id === balance.storeId) || fallbackState.stores[0] || null;
+  const storageLocation = fallbackState.storageLocations.find(l => l.id === balance.storageLocationId) || null;
+
+  return {
+    ...balance,
+    item: item || {
+      id: balance.itemId,
+      code: balance.itemId,
+      description: balance.itemId
+    },
+    batch: batch ? enrichBatch(batch) : (balance.batch || { id: balance.batchId, batchNumber: balance.batchNumber || "N/A" }),
+    store: store || { id: balance.storeId, name: "Main Store" },
+    storageLocation: storageLocation || {
+      id: balance.storageLocationId,
+      locationCode: "MAIN-A1-01",
+      shelfNumber: "1",
+      binNumber: "01",
+      roomOrZone: store?.name || "Main Store"
+    }
+  };
+}
+
+function enrichReceipt(receipt: any): any {
+  if (!receipt) return receipt;
+  const supplierDonor = fallbackState.suppliers.find(s => s.id === receipt.supplierDonorId) || null;
+  const lines = (receipt.lines || []).map((line: any) => {
+    const item = findItem(line.itemId);
+    const fundingSource = fallbackState.fundingSources.find(f => f.id === line.fundingSourceId) || null;
+    const batches = fallbackState.batches.filter(b => b.grnLineId === line.id || (b.itemId === line.itemId && b.batchNumber === line.batchNumber));
+
+    let inspection = line.inspection || null;
+    if (!inspection && (line.quantityVerified !== undefined || line.qualityStatus !== undefined || line.quantityAccepted !== undefined)) {
+      const accepted = Number(line.quantityAccepted ?? line.quantityReceived ?? 0);
+      const rejected = Number(line.quantityRejected ?? 0);
+      inspection = {
+        id: line.inspectionId || uid("insp"),
+        grnLineId: line.id,
+        quantityVerified: Number(line.quantityVerified ?? line.quantityReceived ?? 0),
+        quantityAccepted: accepted,
+        quantityRejected: rejected,
+        outcome: accepted === 0 ? "REJECTED" : rejected > 0 ? "PARTIALLY_ACCEPTED" : "ACCEPTED",
+        qualityStatus: line.qualityStatus || "PASS",
+        qualityNotes: line.qualityNotes || "",
+        rejectionReason: line.rejectionReason || ""
+      };
+    }
+
+    return {
+      ...line,
+      item: item || {
+        id: line.itemId,
+        code: line.itemId,
+        description: line.itemDescription || line.itemId
+      },
+      fundingSource,
+      inspection,
+      stockBatches: batches.map(enrichBatch)
+    };
+  });
+
+  return {
+    ...receipt,
+    supplierDonor: supplierDonor || (receipt.supplierDonorId ? { id: receipt.supplierDonorId, name: receipt.supplierDonorId } : null),
+    lines
   };
 }
 
@@ -1527,7 +1641,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/stock-batches" && method === "GET") {
-      return jsonResponse(fallbackState.batches);
+      return jsonResponse(fallbackState.batches.map(enrichBatch));
     }
 
     if (path.startsWith("/stock-batches/") && path.endsWith("/allocate") && method === "POST") {
@@ -1536,27 +1650,70 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const batch = fallbackState.batches.find(b => b.id === id);
       if (!batch) return jsonResponse({ message: "Batch not found" }, 404);
       
-      const bal = fallbackState.balances.find(b => b.batchId === id);
+      const requestedQty = Number(body.quantity || batch.remainingQuantity || 1);
+      const allocQty = Math.min(requestedQty, Number(batch.remainingQuantity || 0));
+      if (allocQty <= 0) {
+        return jsonResponse({ message: "No unallocated quantity remaining for this batch." }, 400);
+      }
+
+      // Decrement unallocated remaining quantity
+      batch.remainingQuantity = Math.max(0, Number(batch.remainingQuantity) - allocQty);
+      if (batch.remainingQuantity === 0) {
+        batch.status = "AVAILABLE";
+      }
+
+      const store = fallbackState.stores[0] || { id: "store-main", name: "Central Medical Store" };
+      const loc = fallbackState.storageLocations.find(l => l.id === body.storageLocationId);
+
+      // Check for existing balance for this batch & storageLocation
+      let bal = fallbackState.balances.find(b => b.batchId === id && b.storageLocationId === body.storageLocationId);
       if (bal) {
-        bal.storageLocationId = body.storageLocationId;
+        bal.quantityOnHand = Number(bal.quantityOnHand || 0) + allocQty;
+        bal.quantityAvailable = Number(bal.quantityAvailable || 0) + allocQty;
       } else {
-        fallbackState.balances.push({
+        bal = {
           id: uid("bal"),
           itemId: batch.itemId,
           batchId: id,
-          storeId: "store-main",
+          storeId: loc?.storeId || store.id,
           storageLocationId: body.storageLocationId,
-          quantityOnHand: body.quantity || batch.remainingQuantity || 10,
+          quantityOnHand: allocQty,
           quantityReserved: 0,
-          quantityAvailable: body.quantity || batch.remainingQuantity || 10,
-          unitCost: batch.unitCost || 0
-        });
+          quantityAvailable: allocQty,
+          unitCost: Number(batch.unitCost || 0)
+        };
+        fallbackState.balances.push(bal);
       }
-      return jsonResponse({ success: true, allocated: true });
+
+      // Record in ledger
+      fallbackState.ledger.unshift({
+        id: uid("led"),
+        itemId: batch.itemId,
+        entryType: "RECEIPT",
+        quantityIn: allocQty,
+        quantityOut: 0,
+        balanceAfter: fallbackState.balances.filter(b => b.itemId === batch.itemId).reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0),
+        unitPrice: batch.unitCost || 0,
+        referenceType: "ALLOCATION",
+        referenceId: batch.batchNumber || id,
+        createdAt: new Date().toISOString()
+      });
+
+      return jsonResponse({ success: true, allocated: true, remainingQuantity: batch.remainingQuantity, balance: enrichBalance(bal) });
     }
 
     if (path === "/location-balances" && method === "GET") {
-      return jsonResponse(fallbackState.balances);
+      const barcode = url.searchParams.get("barcode");
+      let list = fallbackState.balances;
+      if (barcode) {
+        const q = barcode.toLowerCase();
+        list = list.filter(b => 
+          (b.batchId && b.batchId.toLowerCase().includes(q)) ||
+          (b.storageLocationId && b.storageLocationId.toLowerCase().includes(q)) ||
+          (b.itemId && b.itemId.toLowerCase().includes(q))
+        );
+      }
+      return jsonResponse(list.map(enrichBalance));
     }
 
     if (path === "/ledger/balances" && method === "GET") {
@@ -1565,7 +1722,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       let list = fallbackState.balances;
       if (itemId) list = list.filter(b => b.itemId === itemId);
       if (locId) list = list.filter(b => b.storageLocationId === locId);
-      return jsonResponse(list);
+      return jsonResponse(list.map(enrichBalance));
     }
 
     if (path === "/ledger/movements" && method === "GET") {
@@ -1577,86 +1734,58 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 9. Receipts (Model 19 / GRN)
     if (path === "/receipts" && method === "GET") {
-      return jsonResponse(fallbackState.receipts);
+      const search = (url.searchParams.get("search") || "").toLowerCase().trim();
+      let list = fallbackState.receipts;
+      if (search) {
+        list = list.filter(r => 
+          (r.grnNumber && r.grnNumber.toLowerCase().includes(search)) ||
+          (r.purchaseOrderRef && r.purchaseOrderRef.toLowerCase().includes(search)) ||
+          (r.supplierDonorId && r.supplierDonorId.toLowerCase().includes(search))
+        );
+      }
+      return jsonResponse(list.map(enrichReceipt));
     }
 
     if (path === "/receipts" && method === "POST") {
       const body = await request.json<any>();
       const receiptId = uid("grn");
       const grnNumber = `GRN-${Date.now().toString().slice(-6)}`;
+      const status = body.submit ? "PENDING_INSPECTION" : "DRAFT";
       const newReceipt = {
         id: receiptId,
         grnNumber,
-        sourceType: body.sourceType || "PURCHASE",
+        sourceType: body.sourceType || "PROCUREMENT",
         supplierDonorId: body.supplierDonorId,
-        purchaseOrderRef: body.purchaseOrderRef,
-        deliveryNoteRef: body.deliveryNoteRef,
-        remarks: body.remarks,
-        status: "ACCEPTED",
+        purchaseOrderRef: body.purchaseOrderRef || "",
+        donationLetterRef: body.donationLetterRef || "",
+        governmentAllocationRef: body.governmentAllocationRef || "",
+        projectSupportRef: body.projectSupportRef || "",
+        deliveryNoteRef: body.deliveryNoteRef || "",
+        remarks: body.remarks || "",
+        status,
         receivedAt: new Date().toISOString(),
         createdById: user?.id || "usr-admin",
         lines: (body.lines || []).map((l: any) => {
           const resolvedItem = fallbackState.items.find(i => i.id === l.itemId || (i.code && i.code.toLowerCase() === String(l.itemId).toLowerCase()));
-          const actualItemId = resolvedItem ? resolvedItem.id : l.itemId;
+          const actualItemId = resolvedItem ? resolvedItem.id : (l.itemId || "");
           return {
             id: uid("line"),
             grnId: receiptId,
             itemId: actualItemId,
             quantityReceived: Number(l.quantityReceived),
-            quantityAccepted: Number(l.quantityReceived),
+            quantityAccepted: undefined,
             quantityRejected: 0,
             unitPrice: Number(l.unitPrice || 0),
             batchNumber: l.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
             expiryDate: l.expiryDate,
+            fundingSourceId: l.fundingSourceId,
             remarks: l.remarks
           };
         })
       };
 
       fallbackState.receipts.unshift(newReceipt);
-
-      for (const line of newReceipt.lines) {
-        const batch = {
-          id: uid("batch"),
-          itemId: line.itemId,
-          grnLineId: line.id,
-          batchNumber: line.batchNumber,
-          expiryDate: line.expiryDate,
-          unitCost: line.unitPrice,
-          totalAcceptedQuantity: line.quantityReceived,
-          remainingQuantity: line.quantityReceived,
-          status: "AVAILABLE",
-          createdAt: new Date().toISOString()
-        };
-        fallbackState.batches.unshift(batch);
-
-        fallbackState.balances.push({
-          id: uid("bal"),
-          itemId: line.itemId,
-          batchId: batch.id,
-          storeId: "store-main",
-          storageLocationId: "loc-01",
-          quantityOnHand: line.quantityReceived,
-          quantityReserved: 0,
-          quantityAvailable: line.quantityReceived,
-          unitCost: line.unitPrice
-        });
-
-        fallbackState.ledger.unshift({
-          id: uid("led"),
-          itemId: line.itemId,
-          entryType: "RECEIPT",
-          quantityIn: line.quantityReceived,
-          quantityOut: 0,
-          balanceAfter: line.quantityReceived,
-          unitPrice: line.unitPrice,
-          referenceType: "GRN",
-          referenceId: grnNumber,
-          createdAt: new Date().toISOString()
-        });
-      }
-
-      return jsonResponse(newReceipt, 201);
+      return jsonResponse(enrichReceipt(newReceipt), 201);
     }
 
     if (path.startsWith("/receipts/") && path.endsWith("/submit") && method === "POST") {
@@ -1664,7 +1793,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const receipt = fallbackState.receipts.find(r => r.id === id);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       receipt.status = "PENDING_INSPECTION";
-      return jsonResponse(receipt);
+      return jsonResponse(enrichReceipt(receipt));
     }
 
     if (path.startsWith("/receipts/lines/") && path.endsWith("/inspect") && method === "POST") {
@@ -1680,22 +1809,75 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           break;
         }
       }
-      if (foundLine) {
-        foundLine.quantityVerified = Number(body.quantityVerified || 0);
-        foundLine.quantityAccepted = Number(body.quantityAccepted || 0);
-        foundLine.quantityRejected = Number(body.quantityRejected || 0);
-        foundLine.qualityStatus = body.qualityStatus || "PASS";
-        foundLine.qualityNotes = body.qualityNotes || "";
-        foundLine.rejectionReason = body.rejectionReason || "";
+      if (!foundLine) return jsonResponse({ message: "Receipt line not found" }, 404);
+
+      const received = Number(foundLine.quantityReceived || 0);
+      const accepted = Number(body.quantityAccepted !== undefined ? body.quantityAccepted : received);
+      const rejected = Number(body.quantityRejected !== undefined ? body.quantityRejected : Math.max(0, received - accepted));
+      const qualityStatus = body.qualityStatus || (rejected === 0 ? "PASS" : accepted > 0 ? "PARTIAL" : "FAIL");
+      const outcome = accepted === 0 ? "REJECTED" : rejected > 0 ? "PARTIALLY_ACCEPTED" : "ACCEPTED";
+
+      foundLine.quantityVerified = Number(body.quantityVerified || received);
+      foundLine.quantityAccepted = accepted;
+      foundLine.quantityRejected = rejected;
+      foundLine.qualityStatus = qualityStatus;
+      foundLine.qualityNotes = body.qualityNotes || "";
+      foundLine.rejectionReason = body.rejectionReason || "";
+
+      foundLine.inspection = {
+        id: uid("insp"),
+        grnLineId: lineId,
+        quantityVerified: foundLine.quantityVerified,
+        quantityAccepted: accepted,
+        quantityRejected: rejected,
+        outcome,
+        qualityStatus,
+        qualityNotes: foundLine.qualityNotes,
+        rejectionReason: foundLine.rejectionReason
+      };
+
+      // Create or update pending storage batch if accepted > 0
+      if (accepted > 0) {
+        let batch = fallbackState.batches.find(b => b.grnLineId === lineId || (b.itemId === foundLine.itemId && b.batchNumber === foundLine.batchNumber));
+        if (batch) {
+          batch.totalAcceptedQuantity = accepted;
+          batch.remainingQuantity = accepted;
+          batch.status = "PENDING_STORAGE";
+        } else {
+          batch = {
+            id: uid("batch"),
+            itemId: foundLine.itemId,
+            grnLineId: lineId,
+            batchNumber: foundLine.batchNumber || `BAT-${Date.now().toString().slice(-5)}`,
+            expiryDate: foundLine.expiryDate,
+            unitCost: Number(foundLine.unitPrice || 0),
+            totalAcceptedQuantity: accepted,
+            remainingQuantity: accepted,
+            status: "PENDING_STORAGE",
+            createdAt: new Date().toISOString()
+          };
+          fallbackState.batches.unshift(batch);
+        }
       }
-      return jsonResponse(foundReceipt || { success: true });
+
+      // Check if all lines are inspected in the receipt, and update receipt status
+      if (foundReceipt) {
+        const allInspected = (foundReceipt.lines || []).every((l: any) => l.inspection || l.quantityAccepted !== undefined);
+        if (allInspected) {
+          const anyAccepted = (foundReceipt.lines || []).some((l: any) => (l.quantityAccepted ?? l.inspection?.quantityAccepted) > 0);
+          const anyRejected = (foundReceipt.lines || []).some((l: any) => (l.quantityRejected ?? l.inspection?.quantityRejected) > 0);
+          foundReceipt.status = anyAccepted && anyRejected ? "PARTIALLY_ACCEPTED" : anyAccepted ? "ACCEPTED" : "REJECTED";
+        }
+      }
+
+      return jsonResponse(enrichReceipt(foundReceipt));
     }
 
     if (path.startsWith("/receipts/") && method === "GET") {
       const id = path.split("/")[2];
       const receipt = fallbackState.receipts.find(r => r.id === id);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
-      return jsonResponse(receipt);
+      return jsonResponse(enrichReceipt(receipt));
     }
 
     // 10. Issues (Model 22 / SIV)
@@ -1940,13 +2122,124 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 15. Dashboard Overview
     if (path === "/dashboard" && method === "GET") {
+      const activeItems = fallbackState.items.filter(i => i.active !== false);
+      const balances = fallbackState.balances;
+      const batches = fallbackState.batches;
+      const receipts = fallbackState.receipts;
+      const issues = fallbackState.issues;
+
+      // Current stock & Available stock across all balances
+      const currentStock = balances.reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
+      const availableStock = balances.reduce((sum, b) => sum + Number(b.quantityAvailable || 0), 0);
+
+      // Total Inventory Value: sum of quantityOnHand * unitCost
+      const totalInventoryValue = balances.reduce((sum, b) => {
+        const item = fallbackState.items.find(i => i.id === b.itemId || (i.code && i.code.toLowerCase() === (b.itemId || "").toLowerCase()));
+        const cost = Number(b.unitCost || item?.unitPrice || 0);
+        return sum + (Number(b.quantityOnHand || 0) * cost);
+      }, 0);
+
+      // Stock by item for classification
+      const stockByItem = activeItems.map(item => {
+        const itemBalances = balances.filter(b => b.itemId === item.id || (item.code && b.itemId === item.code));
+        const qty = itemBalances.reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
+        return { item, quantity: qty };
+      });
+
+      const lowStock = stockByItem.filter(({ item, quantity }) => quantity > 0 && quantity <= Number(item.reorderLevel || 0));
+      const overStock = stockByItem.filter(({ item, quantity }) => item.maximumStock && quantity > Number(item.maximumStock));
+      const stockOuts = stockByItem.filter(({ quantity }) => quantity <= 0);
+      const belowMinimum = stockByItem.filter(({ item, quantity }) => item.minimumStock && quantity < Number(item.minimumStock));
+      const dueForReorder = lowStock;
+
+      // Pending counts
+      const pendingInspectionCount = receipts.filter(r => r.status === "PENDING_INSPECTION" || (r.lines && r.lines.some((l: any) => !l.inspection && l.quantityAccepted === undefined))).length;
+      const pendingStorageAllocation = batches.filter(b => Number(b.remainingQuantity || 0) > 0).length;
+      const pendingApprovalCount = issues.filter(i => i.status === "PENDING_APPROVAL").length;
+
+      // Monthly consumption from ledger issue entries
+      const monthlyBuckets: Record<string, number> = {};
+      for (const entry of fallbackState.ledger) {
+        if (entry.entryType === "ISSUE" || Number(entry.quantityOut || 0) > 0) {
+          const monthKey = (entry.createdAt || new Date().toISOString()).slice(0, 7);
+          monthlyBuckets[monthKey] = (monthlyBuckets[monthKey] || 0) + Number(entry.quantityOut || 0);
+        }
+      }
+      const monthlyConsumption = Object.entries(monthlyBuckets)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([month, quantity]) => ({ month, quantity }));
+      if (monthlyConsumption.length === 0) {
+        const curMonth = new Date().toISOString().slice(0, 7);
+        monthlyConsumption.push({ month: curMonth, quantity: 0 });
+      }
+
+      // Fast & slow moving
+      const fastMoving = [...stockByItem].sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+      const slowMoving = [...stockByItem].sort((a, b) => a.quantity - b.quantity).slice(0, 5);
+
+      // Stock status distribution for chart
+      const stockStatusDistribution = [
+        { name: "Normal stock", value: stockByItem.filter(s => s.quantity > Number(s.item.reorderLevel || 0)).length },
+        { name: "Low stock", value: lowStock.length },
+        { name: "Overstock", value: overStock.length },
+        { name: "Stock-out", value: stockOuts.length }
+      ];
+
+      // Value by category
+      const catMap: Record<string, number> = {};
+      for (const b of balances) {
+        const item = fallbackState.items.find(i => i.id === b.itemId || (i.code && i.code.toLowerCase() === (b.itemId || "").toLowerCase()));
+        const cat = fallbackState.categories.find(c => c.id === item?.categoryId);
+        const catName = cat?.name || "General";
+        const val = Number(b.quantityOnHand || 0) * Number(b.unitCost || 0);
+        catMap[catName] = (catMap[catName] || 0) + val;
+      }
+      const inventoryValueByCategory = Object.entries(catMap).map(([name, value]) => ({ name, value }));
+
+      // Value by funding source
+      const fundMap: Record<string, number> = {};
+      for (const b of balances) {
+        const item = fallbackState.items.find(i => i.id === b.itemId || (i.code && i.code.toLowerCase() === (b.itemId || "").toLowerCase()));
+        const fund = fallbackState.fundingSources.find(f => f.id === item?.fundingSourceId);
+        const fundName = fund?.name || "Treasury";
+        const val = Number(b.quantityOnHand || 0) * Number(b.unitCost || 0);
+        fundMap[fundName] = (fundMap[fundName] || 0) + val;
+      }
+      const inventoryValueByFundingSource = Object.entries(fundMap).map(([name, value]) => ({ name, value }));
+
+      const totalCalculated = Math.max(activeItems.length, 1);
+      const stockOutRate = stockOuts.length / totalCalculated;
+
       return jsonResponse({
-        totalItems: fallbackState.items.length,
-        totalReceipts: fallbackState.receipts.length,
-        totalIssues: fallbackState.issues.length,
-        lowStockItems: fallbackState.items.filter(i => (i.reorderLevel || 0) > 20),
-        recentMovements: fallbackState.ledger.slice(0, 10),
-        pendingApprovalsCount: fallbackState.issues.filter(i => i.status === "PENDING_APPROVAL").length
+        totalItems: activeItems.length,
+        currentStock,
+        availableStock,
+        totalInventoryValue,
+        lowStock,
+        overStock,
+        stockOuts,
+        belowMinimum,
+        dueForReorder,
+        pendingInspectionCount,
+        pendingStorageAllocation,
+        pendingApprovalCount,
+        monthlyConsumption,
+        fastMoving,
+        slowMoving,
+        charts: {
+          stockStatusDistribution,
+          inventoryValueByCategory,
+          inventoryValueByFundingSource,
+          monthlyConsumptionTrend: monthlyConsumption
+        },
+        kpis: {
+          period: "Last 90 days",
+          inventoryAccuracy: currentStock > 0 ? 0.98 : 1.0,
+          stockOutRate,
+          orderFulfillmentRate: 0.95,
+          deadStockPercentage: 0,
+          disposalRate: 0
+        }
       });
     }
 

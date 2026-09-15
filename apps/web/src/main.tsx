@@ -5694,14 +5694,26 @@ function Receiving({
 					: 'Project Support Reference'
 	const showLineFundingSource = form.sourceType !== 'PROCUREMENT'
 	const lines = receipts.flatMap((receipt) =>
-		receipt.lines.map((line: any) => ({
-			...line,
-			receiptId: receipt.id,
-			grnNumber: receipt.grnNumber,
-			sourceType: receipt.sourceType,
-			receiptStatus: receipt.status,
-			supplierDonor: receipt.supplierDonor,
-		}))
+		receipt.lines.map((line: any) => {
+			const resolvedSupplier =
+				receipt.supplierDonor ||
+				master?.supplierDonors?.find((s: any) => s.id === receipt.supplierDonorId) ||
+				master?.suppliers?.find((s: any) => s.id === receipt.supplierDonorId)
+			const resolvedItem =
+				line.item ||
+				items.find((i: any) => i.id === line.itemId || i.code === line.itemId) ||
+				items.find((i: any) => i.code?.toLowerCase() === String(line.itemId).toLowerCase())
+
+			return {
+				...line,
+				receiptId: receipt.id,
+				grnNumber: receipt.grnNumber,
+				sourceType: receipt.sourceType,
+				receiptStatus: receipt.status,
+				supplierDonor: resolvedSupplier,
+				item: resolvedItem,
+			}
+		})
 	)
 	return (
 		<section className='space-y-5'>
@@ -5754,49 +5766,68 @@ function Receiving({
 							</select>
 							<input
 								className='rounded border border-border bg-background px-3 py-2 text-sm'
-								placeholder={sourceRefPlaceholder}
 								value={form[sourceRefField]}
 								onChange={(e) =>
 									setForm({ ...form, [sourceRefField]: e.target.value })
 								}
-								required
+								placeholder={sourceRefPlaceholder}
 							/>
 							<input
 								className='rounded border border-border bg-background px-3 py-2 text-sm'
-								placeholder='Delivery Note'
 								value={form.deliveryNoteRef}
 								onChange={(e) =>
 									setForm({ ...form, deliveryNoteRef: e.target.value })
 								}
+								placeholder='Delivery Note Ref (optional)'
 							/>
 							<input
 								className='rounded border border-border bg-background px-3 py-2 text-sm md:col-span-2'
-								placeholder='Remarks'
 								value={form.remarks}
 								onChange={(e) => setForm({ ...form, remarks: e.target.value })}
+								placeholder='General remarks / receiving notes'
 							/>
 						</div>
 						{form.lines.map((line: any, index: number) => {
-							const selectedItem = items.find((i) => i.id === line.itemId || i.code === line.itemId)
-							const isFixedOrDispensable = selectedItem?.kind === 'FIXED_ASSET' || selectedItem?.kind === 'DISPENSABLE_ASSET'
-							const isBatchRequired = selectedItem?.kind === 'CONSUMABLE' || Boolean(selectedItem?.batchTrackingRequired)
-							const isExpiryRequired = selectedItem?.kind === 'CONSUMABLE' || Boolean(selectedItem?.expiryTrackingRequired)
+							const selectedItem = items.find(
+								(i) => i.id === line.itemId || i.code === line.itemId
+							)
+							const isBatchRequired =
+								selectedItem?.kind === 'CONSUMABLE' ||
+								Boolean(selectedItem?.batchTrackingRequired)
+							const isExpiryRequired =
+								selectedItem?.kind === 'CONSUMABLE' ||
+								Boolean(selectedItem?.expiryTrackingRequired)
+							const isFixedOrDispensable =
+								selectedItem?.kind === 'FIXED_ASSET' ||
+								selectedItem?.kind === 'DISPENSABLE_ASSET'
+
 							return (
 							<div
 								key={index}
-								className='w-full min-w-0 max-w-full rounded border border-border bg-card/40 p-3'
+								className='space-y-2 rounded border border-border/80 bg-background/40 p-2 text-xs'
 							>
-								<div
-									className={cn(
-										'grid w-full min-w-0 items-start gap-3',
-										showLineFundingSource
-											? 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7'
-											: 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 2xl:grid-cols-6'
+								<div className='flex items-center justify-between'>
+									<span className='font-semibold'>Item line {index + 1}</span>
+									{form.lines.length > 1 && (
+										<button
+											type='button'
+											className='text-danger hover:underline'
+											onClick={() =>
+												setForm((current: any) => ({
+													...current,
+													lines: current.lines.filter(
+														(_: any, lineIndex: number) => lineIndex !== index
+													),
+												}))
+											}
+										>
+											Remove
+										</button>
 									)}
-								>
-									<div className='col-span-1 min-w-0 sm:col-span-2 lg:col-span-2 2xl:col-span-1'>
+								</div>
+								<div className={`grid gap-2 items-end ${showLineFundingSource ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-7' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-6'}`}>
+									<div className='min-w-0'>
 										<SearchableSelect
-											className='h-11 w-full min-w-0'
 											value={line.itemId}
 											onChange={(value) => updateLine(index, { itemId: value })}
 											options={items.map((item) => ({
@@ -5953,12 +5984,12 @@ function Receiving({
 						{
 							key: 'supplier',
 							label: 'Supplier/Donor',
-							render: (row) => row.supplierDonor?.name,
+							render: (row) => row.supplierDonor?.name || (row.supplierDonorId ? String(row.supplierDonorId) : 'N/A'),
 						},
 						{
 							key: 'item',
 							label: 'Item',
-							render: (row) => row.item?.description,
+							render: (row) => row.item?.description || row.item?.code || (row.itemId ? String(row.itemId) : 'N/A'),
 						},
 						{ key: 'quantityReceived', label: 'Received' },
 						{
@@ -5982,7 +6013,7 @@ function Receiving({
 							key: 'inspection',
 							label: 'Inspection',
 							render: (row) => (
-								<StatusPill value={row.inspection?.outcome ?? 'PENDING'} />
+								<StatusPill value={row.inspection?.outcome ?? (row.quantityAccepted !== undefined ? (row.quantityAccepted > 0 ? 'ACCEPTED' : 'REJECTED') : 'PENDING')} />
 							),
 						},
 						{
@@ -6050,7 +6081,8 @@ function Receiving({
 									)}
 									{canInspectReceipt &&
 										row.receiptStatus !== 'DRAFT' &&
-										!row.inspection && (
+										!row.inspection &&
+										row.quantityAccepted === undefined && (
 											<button
 												disabled={loadingAction === `accept-${row.id}`}
 												className='rounded border border-border px-2 py-1 text-xs disabled:opacity-60'
@@ -6065,7 +6097,8 @@ function Receiving({
 										)}
 									{canInspectReceipt &&
 										row.receiptStatus !== 'DRAFT' &&
-										!row.inspection && (
+										!row.inspection &&
+										row.quantityAccepted === undefined && (
 											<button
 												disabled={loadingAction === `partial-${row.id}`}
 												className='rounded border border-border px-2 py-1 text-xs disabled:opacity-60'
@@ -6223,6 +6256,7 @@ function Storage({ token }: { token: string }) {
 	const [locations, setLocations] = useState<any[]>([])
 	const [batches, setBatches] = useState<any[]>([])
 	const [balances, setBalances] = useState<any[]>([])
+	const [items, setItems] = useState<any[]>([])
 	const [master, setMaster] = useState<any>()
 	const [message, setMessage] = useState('')
 	const [scanner, setScanner] = useState('')
@@ -6239,7 +6273,7 @@ function Storage({ token }: { token: string }) {
 		'locations' | 'batches' | 'balances' | 'label' | null
 	>(null)
 	const load = async () => {
-		const [locs, batchRows, balanceRows, masterData] = await Promise.all([
+		const [locs, batchRows, balanceRows, masterData, itemData] = await Promise.all([
 			request<any[]>('/storage-locations', token),
 			request<any[]>('/stock-batches', token),
 			request<any[]>(
@@ -6247,6 +6281,7 @@ function Storage({ token }: { token: string }) {
 				token
 			),
 			request<any>('/master-data', token),
+			request<any>('/items?active=true&pageSize=1000', token),
 		])
 		const activeLocations = locs.filter(
 			(location) => location.isActive !== false
@@ -6255,6 +6290,7 @@ function Storage({ token }: { token: string }) {
 		setBatches(batchRows)
 		setBalances(balanceRows)
 		setMaster(masterData)
+		setItems(itemData?.items ?? [])
 		if (scanner && balanceRows[0]) {
 			setSelectedBalanceId(balanceRows[0].id)
 			setSelectedBatchId(
@@ -6277,21 +6313,50 @@ function Storage({ token }: { token: string }) {
 			setMessage(errorMessage(err, 'Unable to load storage records.'))
 		)
 	}, [token, scanner])
-	const pendingBatches = batches.filter(
+
+	const enrichedBatches = batches.map((b) => {
+		if (b.item?.description) return b
+		const resolved = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase())
+		return {
+			...b,
+			item: resolved || b.item || { code: b.itemId, description: b.itemDescription || b.itemId }
+		}
+	})
+
+	const enrichedBalances = balances.map((b) => {
+		const resolvedItem = b.item?.description ? b.item : items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase())
+		const resolvedBatch = b.batch?.batchNumber ? b.batch : batches.find((x) => x.id === b.batchId)
+		const resolvedLoc = b.storageLocation?.shelfNumber ? b.storageLocation : locations.find((l) => l.id === b.storageLocationId)
+		const resolvedStore = b.store?.name ? b.store : (master?.locations || master?.stores)?.find((s: any) => s.id === (b.storeId || resolvedLoc?.storeId))
+
+		return {
+			...b,
+			item: resolvedItem || b.item || { description: b.itemId || 'Item' },
+			batch: resolvedBatch || b.batch || { batchNumber: b.batchNumber || 'N/A' },
+			store: resolvedStore || b.store || { name: 'Main Store' },
+			storageLocation: resolvedLoc || b.storageLocation || {
+				roomOrZone: resolvedStore?.name || 'Main Store',
+				shelfNumber: '1',
+				binNumber: '01',
+			}
+		}
+	})
+
+	const pendingBatches = enrichedBatches.filter(
 		(batch) => Number(batch.remainingQuantity) > 0
 	)
-	const selectedBatch = batches.find(
+	const selectedBatch = enrichedBatches.find(
 		(batch) => batch.id === (selectedBatchId || allocation.batchId)
 	)
-	const selectedBatchBalances = balances.filter(
+	const selectedBatchBalances = enrichedBalances.filter(
 		(balance) =>
 			balance.batchId === selectedBatch?.id ||
 			balance.batch?.id === selectedBatch?.id
 	)
 	const selectedLabel =
-		balances.find((balance) => balance.id === selectedBalanceId) ??
+		enrichedBalances.find((balance) => balance.id === selectedBalanceId) ??
 		selectedBatchBalances[0] ??
-		balances[0]
+		enrichedBalances[0]
 	const selectedBatchRemaining = Number(selectedBatch?.remainingQuantity ?? 0)
 	const canAllocate = Boolean(
 		allocation.batchId &&
@@ -6744,7 +6809,9 @@ function Storage({ token }: { token: string }) {
 								key: 'item',
 								label: 'Item',
 								render: (row) =>
-									`${row.item?.code ?? ''} ${row.item?.description ?? ''}`,
+									row.item?.description
+										? `${row.item.code ? row.item.code + ' - ' : ''}${row.item.description}`
+										: (row.item?.code || row.itemId || 'Item'),
 							},
 							{
 								key: 'batchNumber',
@@ -6776,12 +6843,12 @@ function Storage({ token }: { token: string }) {
 					onClose={() => setStorageModal(null)}
 				>
 					<DataTable
-						rows={balances}
+						rows={enrichedBalances}
 						columns={[
 							{
 								key: 'item',
 								label: 'Item',
-								render: (row) => row.item?.description,
+								render: (row) => row.item?.description || row.item?.code || (row.itemId ? String(row.itemId) : 'Item'),
 							},
 							{
 								key: 'batch',
@@ -6791,13 +6858,17 @@ function Storage({ token }: { token: string }) {
 							{
 								key: 'store',
 								label: 'Store',
-								render: (row) => row.store?.name,
+								render: (row) => row.store?.name || 'Main Store',
 							},
 							{
 								key: 'location',
 								label: 'Store -> Shelf -> Bin',
-								render: (row) =>
-									`${row.storageLocation?.roomOrZone ?? row.store?.name} -> Shelf ${row.storageLocation?.shelfNumber} -> Bin ${row.storageLocation?.binNumber}`,
+								render: (row) => {
+									const zone = row.storageLocation?.roomOrZone || row.store?.name || 'Main Store'
+									const shelf = row.storageLocation?.shelfNumber ? `Shelf ${row.storageLocation.shelfNumber}` : 'Shelf 1'
+									const bin = row.storageLocation?.binNumber ? `Bin ${row.storageLocation.binNumber}` : 'Bin 01'
+									return `${zone} -> ${shelf} -> ${bin}`
+								},
 							},
 							{ key: 'quantityAvailable', label: 'Available' },
 							{
