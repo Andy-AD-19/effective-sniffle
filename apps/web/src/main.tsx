@@ -8907,15 +8907,15 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 						rows={queue.pendingIssues}
 						empty='No stock issue requests pending approval.'
 						columns={[
-							{ key: 'requestNumber', label: 'Request №' },
-							{ key: 'department', label: 'Department', render: (row) => row.department?.name },
+							{ key: 'requestNumber', label: 'Request №', render: (row) => row.requestNumber || row.sivNumber || row.id },
+							{ key: 'department', label: 'Department', render: (row) => row.department?.name ?? row.departmentName ?? 'General Department' },
 							{ key: 'recipientName', label: 'Recipient', render: (row) => row.recipientName ?? row.requestedBy?.fullName ?? 'N/A' },
 							{ key: 'purpose', label: 'Purpose' },
 							{
 								key: 'items',
 								label: 'Requested Items',
 								render: (row) =>
-									row.lines?.map((l: any) => `${l.item?.description} (${l.quantity})`).join(', '),
+									row.lines?.map((l: any) => `${l.item?.description ?? l.itemDescription ?? 'Institutional Item'} (${l.quantity ?? l.quantityRequested ?? 1})`).join(', ') || 'N/A',
 							},
 							{ key: 'status', label: 'Status' },
 							{
@@ -8960,10 +8960,10 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 						empty='No reconciliation adjustments pending approval.'
 						columns={[
 							{ key: 'adjustmentNumber', label: 'Adjustment №' },
-							{ key: 'item', label: 'Item', render: (row) => row.item?.description },
-							{ key: 'quantity', label: 'Variance Quantity' },
+							{ key: 'item', label: 'Item', render: (row) => row.item?.description ?? row.itemDescription ?? 'Institutional Item' },
+							{ key: 'quantity', label: 'Variance Quantity', render: (row) => `${row.quantity ?? row.quantityDelta ?? 0}` },
 							{ key: 'reason', label: 'Reason' },
-							{ key: 'requestedBy', label: 'Requested By', render: (row) => row.requestedBy?.fullName },
+							{ key: 'requestedBy', label: 'Requested By', render: (row) => row.requestedBy?.fullName ?? 'Inventory Officer' },
 							{
 								key: 'actions',
 								label: 'Decision',
@@ -9001,13 +9001,15 @@ function ApproverPortalSection({ token, user }: { token: string; user: User }) {
 						empty='No disposal requests pending approval.'
 						columns={[
 							{ key: 'disposalNumber', label: 'Disposal №' },
-							{ key: 'reason', label: 'Reason' },
+							{ key: 'reason', label: 'Reason', render: (row) => row.reason || row.disposalReason?.description || 'Stock disposal' },
 							{ key: 'status', label: 'Status' },
 							{
 								key: 'items',
 								label: 'Proposed Items',
 								render: (row) =>
-									row.lines?.map((l: any) => `${l.item?.description} (${l.quantity})`).join(', '),
+									row.lines && row.lines.length > 0
+										? row.lines.map((l: any) => `${l.item?.description ?? 'Institutional Item'} (${l.quantity ?? 1})`).join(', ')
+										: (row.item?.description ? `${row.item.description} (${row.quantity ?? 1})` : 'Institutional Item'),
 							},
 							{
 								key: 'actions',

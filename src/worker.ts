@@ -404,6 +404,72 @@ const fallbackState = {
       createdAt: new Date().toISOString()
     }
   ];
+
+  fallbackState.issues = [
+    {
+      id: "siv-seed-01",
+      sivNumber: "SIV-2026-001",
+      departmentId: "dept-eng",
+      recipientName: "Eng. Samuel K.",
+      purpose: "Urgent facility generator repair and maintenance",
+      status: "PENDING_APPROVAL",
+      createdById: "usr-storekeeper",
+      createdAt: new Date().toISOString(),
+      lines: [
+        {
+          id: "isline-seed-1",
+          issueId: "siv-seed-01",
+          itemId: "item-screw",
+          quantity: 5,
+          quantityRequested: 5,
+          quantityApproved: 0,
+          quantityIssued: 0,
+          unitPrice: 18.5
+        }
+      ]
+    }
+  ];
+
+  fallbackState.adjustments = [
+    {
+      id: "adj-seed-01",
+      adjustmentNumber: "ADJ-2026-001",
+      itemId: "item-gen-15kva",
+      batchId: "batch-gen-01",
+      storeId: "store-main",
+      type: "GAIN",
+      quantity: 1,
+      quantityDelta: 1,
+      reason: "Found during annual inventory count reconciliation",
+      status: "PENDING_APPROVAL",
+      createdById: "usr-storekeeper",
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  fallbackState.disposals = [
+    {
+      id: "disp-seed-01",
+      disposalNumber: "DSP-2026-001",
+      itemId: "item-screw",
+      batchId: "batch-screw-01",
+      disposalReasonId: "OBSOLETE",
+      reason: "Damaged during store reorganization",
+      status: "PENDING_APPROVAL",
+      createdById: "usr-storekeeper",
+      createdAt: new Date().toISOString(),
+      lines: [
+        {
+          itemId: "item-screw",
+          batchId: "batch-screw-01",
+          storageLocationId: "loc-01",
+          storeId: "store-main",
+          quantity: 2,
+          batchNumber: "MNT-2026-01"
+        }
+      ]
+    }
+  ];
 })();
 
 // All permissions mapping per Role
@@ -753,6 +819,130 @@ function enrichReceipt(receipt: any): any {
   return {
     ...receipt,
     supplierDonor: supplierDonor || (receipt.supplierDonorId ? { id: receipt.supplierDonorId, name: receipt.supplierDonorId } : null),
+    lines
+  };
+}
+
+function enrichIssue(issue: any): any {
+  if (!issue) return issue;
+  const dept = fallbackState.departments.find(d => d.id === issue.departmentId) || null;
+  const user = fallbackState.users.find(u => u.id === issue.createdById) || null;
+  const lines = (issue.lines || []).map((line: any) => {
+    const item = findItem(line.itemId);
+    const qty = Number(line.quantity ?? line.quantityRequested ?? line.quantityApproved ?? 0);
+    return {
+      ...line,
+      quantity: qty,
+      quantityRequested: Number(line.quantityRequested ?? qty),
+      item: item || {
+        id: line.itemId,
+        code: line.itemId,
+        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
+      }
+    };
+  });
+
+  return {
+    ...issue,
+    requestNumber: issue.requestNumber || issue.sivNumber || issue.id,
+    department: dept || (issue.departmentId ? { id: issue.departmentId, name: issue.departmentId } : null),
+    departmentName: dept?.name || issue.departmentName || issue.departmentId || "General Department",
+    requestedBy: user || { id: issue.createdById || "usr-admin", fullName: user?.fullName || issue.recipientName || "Store Requester" },
+    lines
+  };
+}
+
+function enrichAdjustment(adj: any): any {
+  if (!adj) return adj;
+  const item = findItem(adj.itemId);
+  const user = fallbackState.users.find(u => u.id === adj.createdById) || null;
+  const batch = fallbackState.batches.find(b => b.id === adj.batchId) || null;
+  const qty = Number(adj.quantity ?? adj.quantityDelta ?? 0);
+
+  return {
+    ...adj,
+    quantity: qty,
+    quantityDelta: Number(adj.quantityDelta ?? qty),
+    item: item || {
+      id: adj.itemId,
+      code: adj.itemId,
+      description: adj.itemDescription || (adj.itemId ? `Item ${String(adj.itemId).replace(/^item-/, "")}` : "Institutional Item")
+    },
+    batch: batch ? enrichBatch(batch) : (adj.batch || { id: adj.batchId, batchNumber: adj.batchNumber || "N/A" }),
+    requestedBy: user || { id: adj.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
+  };
+}
+
+function enrichDisposal(disp: any): any {
+  if (!disp) return disp;
+  const user = fallbackState.users.find(u => u.id === disp.createdById) || null;
+  const reason = fallbackState.disposalReasons.find(r => r.id === disp.disposalReasonId) || null;
+
+  const lines = (disp.lines || []).map((line: any) => {
+    const item = findItem(line.itemId);
+    const batch = fallbackState.batches.find(b => b.id === line.batchId) || null;
+    return {
+      ...line,
+      quantity: Number(line.quantity ?? 1),
+      item: item || {
+        id: line.itemId,
+        code: line.itemId,
+        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
+      },
+      batch: batch ? enrichBatch(batch) : (line.batch || { id: line.batchId, batchNumber: line.batchNumber || "N/A" })
+    };
+  });
+
+  let topItem = null;
+  if (disp.itemId) {
+    topItem = findItem(disp.itemId) || {
+      id: disp.itemId,
+      code: disp.itemId,
+      description: disp.itemDescription || (disp.itemId ? `Item ${String(disp.itemId).replace(/^item-/, "")}` : "Institutional Item")
+    };
+  } else if (lines.length > 0 && lines[0].item) {
+    topItem = lines[0].item;
+  }
+
+  const batch = fallbackState.batches.find(b => b.id === disp.batchId) || (lines.length > 0 ? lines[0].batch : null);
+
+  const effectiveLines = lines.length > 0 ? lines : (topItem ? [{
+    itemId: disp.itemId,
+    item: topItem,
+    quantity: Number(disp.quantity || 1),
+    batch
+  }] : []);
+
+  return {
+    ...disp,
+    item: topItem,
+    batch: batch ? enrichBatch(batch) : (disp.batch || { id: disp.batchId, batchNumber: disp.batchNumber || "N/A" }),
+    lines: effectiveLines,
+    disposalReason: reason || (disp.disposalReasonId ? { id: disp.disposalReasonId, code: disp.disposalReasonId, description: disp.reason || disp.disposalReasonId } : null),
+    requestedBy: user || { id: disp.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
+  };
+}
+
+function enrichReturn(ret: any): any {
+  if (!ret) return ret;
+  const dept = fallbackState.departments.find(d => d.id === ret.departmentId) || null;
+  const lines = (ret.lines || []).map((line: any) => {
+    const item = findItem(line.itemId);
+    return {
+      ...line,
+      quantity: Number(line.quantity ?? line.quantityReturned ?? 1),
+      item: item || {
+        id: line.itemId,
+        code: line.itemId,
+        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
+      }
+    };
+  });
+
+  return {
+    ...ret,
+    department: dept || (ret.departmentId ? { id: ret.departmentId, name: ret.departmentId } : null),
+    departmentName: dept?.name || ret.departmentId || "General Department",
     lines
   };
 }
@@ -1979,7 +2169,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 10. Issues (Model 22 / SIV)
     if (path === "/issues" && method === "GET") {
-      return jsonResponse(fallbackState.issues);
+      return jsonResponse(fallbackState.issues.map(enrichIssue));
     }
 
     if (path === "/issues" && method === "POST") {
@@ -1989,30 +2179,33 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const newIssue = {
         id: issueId,
         sivNumber,
+        requestNumber: sivNumber,
         departmentId: body.departmentId,
         recipientName: body.recipientName,
         purpose: body.purpose,
-        status: "APPROVED",
+        status: "PENDING_APPROVAL",
         createdById: user?.id || "usr-admin",
         createdAt: new Date().toISOString(),
         lines: (body.lines || []).map((l: any) => ({
           id: uid("isline"),
           issueId,
           itemId: l.itemId,
-          quantityRequested: Number(l.quantity),
-          quantityApproved: Number(l.quantity),
-          quantityIssued: Number(l.quantity),
+          quantity: Number(l.quantity ?? l.quantityRequested ?? 1),
+          quantityRequested: Number(l.quantityRequested ?? l.quantity ?? 1),
+          quantityApproved: 0,
+          quantityIssued: 0,
           unitPrice: 0
         }))
       };
 
       fallbackState.issues.unshift(newIssue);
-      return jsonResponse(newIssue, 201);
+      return jsonResponse(enrichIssue(newIssue), 201);
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/pick-list") && method === "GET") {
       const id = path.split("/")[2];
-      const issue = fallbackState.issues.find(i => i.id === id);
+      const rawIssue = fallbackState.issues.find(i => i.id === id);
+      const issue = rawIssue ? enrichIssue(rawIssue) : null;
       return jsonResponse({
         issue,
         lines: issue?.lines || []
@@ -2024,7 +2217,10 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const issue = fallbackState.issues.find(i => i.id === id);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "APPROVED";
-      return jsonResponse(issue);
+      (issue.lines || []).forEach((l: any) => {
+        l.quantityApproved = Number(l.quantityRequested ?? l.quantity ?? 0);
+      });
+      return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/reject") && method === "POST") {
@@ -2032,7 +2228,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const issue = fallbackState.issues.find(i => i.id === id);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "REJECTED";
-      return jsonResponse(issue);
+      return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/issue") && method === "POST") {
@@ -2041,6 +2237,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "ISSUED";
       for (const line of issue.lines || []) {
+        line.quantityIssued = Number(line.quantityApproved ?? line.quantityRequested ?? line.quantity ?? 0);
         fallbackState.ledger.unshift({
           id: uid("led"),
           itemId: line.itemId,
@@ -2053,7 +2250,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           createdAt: new Date().toISOString()
         });
       }
-      return jsonResponse(issue);
+      return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/receive") && method === "POST") {
@@ -2061,12 +2258,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const issue = fallbackState.issues.find(i => i.id === id);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "COMPLETED";
-      return jsonResponse(issue);
+      return jsonResponse(enrichIssue(issue));
     }
 
     // 11. Returns
     if (path === "/returns" && method === "GET") {
-      return jsonResponse(fallbackState.returns);
+      return jsonResponse(fallbackState.returns.map(enrichReturn));
     }
 
     if (path === "/returns" && method === "POST") {
@@ -2081,7 +2278,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         lines: body.lines || []
       };
       fallbackState.returns.unshift(ret);
-      return jsonResponse(ret, 201);
+      return jsonResponse(enrichReturn(ret), 201);
     }
 
     if (path.startsWith("/returns/") && path.endsWith("/inspect") && method === "POST") {
@@ -2090,28 +2287,28 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const ret = fallbackState.returns.find(r => r.id === id);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
       ret.status = body.outcome === "APPROVED" ? "ACCEPTED" : (body.outcome === "REJECTED" ? "REJECTED" : "PARTIALLY_ACCEPTED");
-      return jsonResponse(ret);
+      return jsonResponse(enrichReturn(ret));
     }
 
     if (path.startsWith("/returns/") && method === "GET") {
       const id = path.split("/")[2];
       const ret = fallbackState.returns.find(r => r.id === id);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
-      return jsonResponse(ret);
+      return jsonResponse(enrichReturn(ret));
     }
 
     // 12. Approvals & Inspections Queue
     if (path === "/approver/queue" && method === "GET") {
       return jsonResponse({
-        pendingIssues: fallbackState.issues.filter(i => i.status === "PENDING_APPROVAL"),
-        pendingAdjustments: fallbackState.adjustments.filter(a => a.status === "PENDING_APPROVAL"),
-        pendingDisposals: fallbackState.disposals.filter(d => d.status === "PENDING_APPROVAL")
+        pendingIssues: fallbackState.issues.filter(i => i.status === "PENDING_APPROVAL").map(enrichIssue),
+        pendingAdjustments: fallbackState.adjustments.filter(a => a.status === "PENDING_APPROVAL").map(enrichAdjustment),
+        pendingDisposals: fallbackState.disposals.filter(d => d.status === "PENDING_APPROVAL").map(enrichDisposal)
       });
     }
 
     if (path === "/inspector/queue" && method === "GET") {
-      const pendingGrns = fallbackState.receipts.filter(r => r.status === "PENDING_INSPECTION") || [];
-      const pendingReturns = fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION") || [];
+      const pendingGrns = (fallbackState.receipts.filter(r => r.status === "PENDING_INSPECTION") || []).map(enrichReceipt);
+      const pendingReturns = (fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION") || []).map(enrichReturn);
       return jsonResponse({
         pendingReceipts: pendingGrns,
         pendingGrns,
@@ -2154,7 +2351,27 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/adjustments" && method === "GET") {
-      return jsonResponse(fallbackState.adjustments);
+      return jsonResponse(fallbackState.adjustments.map(enrichAdjustment));
+    }
+
+    if (path === "/adjustments" && method === "POST") {
+      const body = await request.json<any>();
+      const adj = {
+        id: uid("adj"),
+        adjustmentNumber: `ADJ-${Date.now().toString().slice(-6)}`,
+        itemId: body.itemId,
+        batchId: body.batchId || null,
+        storeId: body.storeId || "store-main",
+        type: body.type || (Number(body.discrepancy || body.quantity || 0) >= 0 ? "GAIN" : "LOSS"),
+        quantity: Math.abs(Number(body.discrepancy ?? body.quantity ?? 0)),
+        quantityDelta: Number(body.discrepancy ?? body.quantityDelta ?? body.quantity ?? 0),
+        reason: body.reason || "Physical count variance",
+        status: "PENDING_APPROVAL",
+        createdAt: new Date().toISOString(),
+        createdById: user?.id || "usr-admin"
+      };
+      fallbackState.adjustments.unshift(adj);
+      return jsonResponse(enrichAdjustment(adj), 201);
     }
 
     if (path.startsWith("/adjustments/") && path.endsWith("/approve") && method === "POST") {
@@ -2162,7 +2379,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const adj = fallbackState.adjustments.find(a => a.id === id);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "APPROVED";
-      return jsonResponse(adj);
+      return jsonResponse(enrichAdjustment(adj));
     }
 
     if (path.startsWith("/adjustments/") && path.endsWith("/reject") && method === "POST") {
@@ -2170,11 +2387,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const adj = fallbackState.adjustments.find(a => a.id === id);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "REJECTED";
-      return jsonResponse(adj);
+      return jsonResponse(enrichAdjustment(adj));
     }
 
     if (path === "/disposals" && method === "GET") {
-      return jsonResponse(fallbackState.disposals);
+      return jsonResponse(fallbackState.disposals.map(enrichDisposal));
     }
 
     if (path === "/disposals" && method === "POST") {
@@ -2189,7 +2406,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         createdById: user?.id || "usr-admin"
       };
       fallbackState.disposals.unshift(disp);
-      return jsonResponse(disp, 201);
+      return jsonResponse(enrichDisposal(disp), 201);
     }
 
     if (path.startsWith("/disposals/") && path.endsWith("/approve") && method === "POST") {
@@ -2197,7 +2414,17 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const disp = fallbackState.disposals.find(d => d.id === id);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "APPROVED";
-      return jsonResponse(disp);
+      return jsonResponse(enrichDisposal(disp));
+    }
+
+    if (path.startsWith("/disposals/") && path.endsWith("/reject") && method === "POST") {
+      const id = path.split("/")[2];
+      const body = await request.json<any>().catch(() => ({}));
+      const disp = fallbackState.disposals.find(d => d.id === id);
+      if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
+      disp.status = "REJECTED";
+      disp.rejectionNotes = body.notes || body.reason || "Rejected by Approver";
+      return jsonResponse(enrichDisposal(disp));
     }
 
     if (path.startsWith("/disposals/") && path.endsWith("/dispose") && method === "POST") {
@@ -2205,7 +2432,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const disp = fallbackState.disposals.find(d => d.id === id);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "DISPOSED";
-      return jsonResponse(disp);
+      return jsonResponse(enrichDisposal(disp));
     }
 
     // 14. Audit Logs & Notifications
