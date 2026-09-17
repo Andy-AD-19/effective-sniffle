@@ -13,15 +13,14 @@ The codebase cleanly separates the **Web Application** from the **Tauri Desktop 
                                    │
               ┌────────────────────┴────────────────────┐
               │                                         │
-        WEB APPLICATION                        DESKTOP APPLICATION
+        WEB & API APPLICATION                  DESKTOP APPLICATION
               │                                         │
-       Cloudflare Pages                              Tauri v2
-              │                                         │
-      Standard Browser                         Windows / macOS / Linux
-  (No Rust / Cargo required)                   (Local SQLite / Sidecar)
+      Cloudflare Workers                               Tauri v2
+      ├── Assets (Vite React SPA)                      Windows / macOS / Linux
+      └── D1 Database (Cloudflare SQLite)             (Local SQLite / Sidecar)
 ```
 
-- **Cloudflare / Web**: The web build compiles purely with TypeScript and Vite into static assets (`HTML`, `CSS`, `JS`, `_redirects`, `_headers`). It **does not require Rust, Cargo, Tauri CLI, or native desktop binaries**.
+- **Cloudflare (Production Unified Deployment)**: The entire web application and backend API run 100% serverlessly on Cloudflare Workers with Cloudflare D1 database persistence and Cloudflare Assets.
 - **Desktop (Tauri)**: The desktop shell in `apps/web/src-tauri` remains intact for offline/desktop distribution and is triggered only via explicit `npm run tauri:*` commands.
 
 ---

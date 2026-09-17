@@ -4,11 +4,12 @@ Production-oriented institutional inventory management system for facility stock
 
 ## Tech Stack
 
-- Frontend: React, TypeScript, Vite, Tailwind CSS, shadcn-style component primitives
-- Backend: NestJS, TypeScript, JWT auth, permission-based RBAC
-- Database: local SQLite with Prisma ORM
-- Reporting: server-generated Excel and PDF exports
-- Deployment: standalone local runtime suitable for Tauri desktop packaging
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS, Lucide icons
+- **Edge Backend**: Cloudflare Worker (`src/worker.ts`), V8 isolate runtime, JWT auth, permission-based RBAC
+- **Database**: Cloudflare D1 (SQLite-compatible serverless database) with automated migration & schema (`d1/schema.sql`, `d1/seed.sql`)
+- **Reporting & Spreadsheets**: Workers-compatible ExcelJS bare export and Model 19 / Model 22 print templates
+- **Deployment**: Unified Cloudflare Worker with embedded static assets (`env.ASSETS`) and serverless D1 database binding (`env.DB`)
+- **Alternative / Desktop**: Tauri desktop wrapper (`apps/web/src-tauri`) & local NestJS container (`apps/api`)
 
 ## Implemented MVP Modules
 

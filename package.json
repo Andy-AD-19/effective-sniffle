@@ -23,7 +23,8 @@
     "tauri:installer": "powershell -ExecutionPolicy Bypass -File scripts/build-tauri-installer.ps1",
     "db:generate": "npm run db:generate --workspace apps/api",
     "db:migrate": "npm run db:migrate --workspace apps/api",
-    "db:seed": "npm run db:seed --workspace apps/api"
+    "db:seed": "npm run db:seed --workspace apps/api",
+    "test:e2e": "tsx tests/e2e-comprehensive-suite.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0"
