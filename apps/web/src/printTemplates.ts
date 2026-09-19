@@ -1038,7 +1038,7 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
 
   let totalAmount = 0;
   const renderedRows: string[] = [];
-  const TOTAL_FIXED_ROWS = 19;
+  const TOTAL_FIXED_ROWS = Math.max(lines.length, 8);
 
   lines.forEach((line, idx) => {
     const item = line.item ?? {};
@@ -1052,9 +1052,15 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
     const totalBirr = Math.floor(lineTotal);
     const totalCents = Math.round((lineTotal - totalBirr) * 100);
 
-    const rawDesc = item.description ?? item.code ?? "Institutional Item";
-    const cleanDesc = (typeof rawDesc === "string" && rawDesc.startsWith("item-")) ? `Item ${rawDesc.slice(5)}` : rawDesc;
-    const desc = escapeHtml(cleanDesc);
+    let displayDesc = item.description || "";
+    if (!displayDesc || displayDesc.startsWith("Item item-") || displayDesc.startsWith("item-")) {
+      displayDesc = item.code || line.itemId || "Institutional Item";
+    }
+    const itemCode = item.code || (line.itemId ? String(line.itemId).replace(/^item-/, "") : "");
+    const showCodeSubtitle = itemCode && itemCode.toLowerCase() !== displayDesc.toLowerCase();
+
+    const desc = escapeHtml(displayDesc);
+    const codeTag = showCodeSubtitle ? `<div class="code-sub">Code: ${escapeHtml(itemCode)}</div>` : "";
     const model = escapeHtml(item.modelNumber ?? "—");
     const serial = escapeHtml(line.batchNumber ?? item.serialNumber ?? "—");
     const pageFrom = "1";
@@ -1063,7 +1069,7 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
     renderedRows.push(`
       <tr>
         <td class="en">${idx + 1}</td>
-        <td class="col-desc-cell ${fontClass(desc)}">${desc}</td>
+        <td class="col-desc-cell ${fontClass(desc)}"><div class="item-title">${desc}</div>${codeTag}</td>
         <td class="${fontClass(model)}">${model}</td>
         <td class="${fontClass(serial)}">${serial}</td>
         <td class="en">${pageFrom}</td>
@@ -1080,7 +1086,7 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
   const emptyRowsCount = Math.max(0, TOTAL_FIXED_ROWS - lines.length);
   for (let i = 0; i < emptyRowsCount; i++) {
     renderedRows.push(`
-      <tr>
+      <tr class="empty-row">
         <td>&nbsp;</td>
         <td>&nbsp;</td>
         <td>&nbsp;</td>
@@ -1348,16 +1354,34 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
 				height: 7.3mm;
 			}
 			.form-table tbody td {
-				height: 5.7mm;
+				height: 7mm;
 				font-family: 'Times New Roman', Georgia, serif;
-				font-size: 8pt;
+				font-size: 8.5pt;
 				font-weight: 400;
-				line-height: 1.1;
+				line-height: 1.15;
 				color: #000;
+				vertical-align: middle;
+			}
+			.form-table tbody tr.empty-row td {
+				height: 5.5mm;
 			}
 			.form-table tbody td.col-desc-cell {
 				text-align: left;
-				padding-left: 1.5mm;
+				padding-left: 2mm;
+				padding-right: 1.5mm;
+			}
+			.form-table .item-title {
+				font-weight: 600;
+				color: #000;
+				font-size: 8.5pt;
+				line-height: 1.2;
+			}
+			.form-table .code-sub {
+				font-size: 7.2pt;
+				color: #444;
+				font-weight: normal;
+				font-family: 'Times New Roman', Georgia, serif;
+				margin-top: 0.5mm;
 			}
 			.form-table tbody td.am,
 			.form-table tbody td .am {

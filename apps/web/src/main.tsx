@@ -6002,11 +6002,29 @@ function Receiving({
 		}
 	}, [token])
 
+	function prepareModel19Record(rawReceipt: any) {
+		if (!rawReceipt) return rawReceipt
+		const enrichedLines = (rawReceipt.lines || []).map((l: any) => {
+			const masterItem = items.find((i: any) => i.id === l.itemId || i.code === l.itemId || (l.item?.code && i.code === l.item.code))
+			const candidateDesc = l.item?.description && !l.item.description.startsWith('item-') && l.item.description !== `Item ${l.itemId}` ? l.item.description : ''
+			return {
+				...l,
+				item: {
+					...l.item,
+					...(masterItem || {}),
+					description: masterItem?.description || candidateDesc || l.item?.description || l.itemDescription || l.itemId,
+					code: masterItem?.code || l.item?.code || l.itemId
+				}
+			}
+		})
+		return { ...rawReceipt, lines: enrichedLines }
+	}
+
 	async function openModel19(receiptId: string) {
 		setLoadingAction(`m19-${receiptId}`)
 		try {
 			const fullReceipt = await request<any>(`/receipts/${receiptId}`, token)
-			setModel19Record(fullReceipt)
+			setModel19Record(prepareModel19Record(fullReceipt))
 		} catch (err) {
 			const message = errorMessage(err, 'Unable to load Model 19 receiving voucher.')
 			setMessage(message)
@@ -6532,11 +6550,11 @@ function Receiving({
 							key: 'item',
 							label: 'Item',
 							render: (row) => {
-								const resolved = (row.item?.description && !row.item.description.startsWith('item-'))
-									? row.item
-									: items.find((i: any) => i.id === row.itemId || i.code === row.itemId || (row.itemId && i.code === String(row.itemId).replace(/^item-/, '')))
-								const desc = resolved?.description || row.item?.description || (row.itemId ? `Item ${String(row.itemId).replace(/^item-/, '')}` : 'N/A')
-								const code = resolved?.code || row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
+								const isGeneric = (d?: string) => !d || d.startsWith('item-') || d.startsWith('Item item-') || d === 'Institutional Item'
+								const masterItem = items.find((i: any) => i.id === row.itemId || i.code === row.itemId || (row.itemId && i.code === String(row.itemId).replace(/^item-/, '')) || (row.item?.code && i.code === row.item.code))
+								const candidateDesc = !isGeneric(row.item?.description) && row.item?.description !== `Item ${row.itemId}` ? row.item?.description : ''
+								const desc = masterItem?.description || candidateDesc || row.itemDescription || row.item?.description || (row.itemId ? String(row.itemId).replace(/^item-/, '') : 'N/A')
+								const code = masterItem?.code || row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
 								return (
 									<div>
 										<p className='font-medium text-foreground'>{desc}</p>
@@ -6614,7 +6632,7 @@ function Receiving({
 										onClick={async () => {
 											try {
 												const r = await request<any>(`/receipts/${row.receiptId}`, token)
-												printHtmlDocument(buildModel19PrintDocument(r))
+												printHtmlDocument(buildModel19PrintDocument(prepareModel19Record(r)))
 											} catch (err) {
 												notify('error', 'Unable to print Model 19')
 											}
@@ -6708,13 +6726,13 @@ function Receiving({
 					<div className='mb-4 flex flex-wrap gap-2'>
 						<button
 							className='inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary shadow hover:bg-primary/20'
-							onClick={() => setModel19Record(detail)}
+							onClick={() => setModel19Record(prepareModel19Record(detail))}
 						>
 							<FileDown size={14} /> Model 19 Voucher
 						</button>
 						<button
 							className='inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground shadow hover:opacity-90'
-							onClick={() => printHtmlDocument(buildModel19PrintDocument(detail))}
+							onClick={() => printHtmlDocument(buildModel19PrintDocument(prepareModel19Record(detail)))}
 						>
 							<Printer size={14} /> Print Model 19
 						</button>
@@ -6753,7 +6771,21 @@ function Receiving({
 							{
 								key: 'item',
 								label: 'Item',
-								render: (row) => `${row.item?.code} - ${row.item?.description}`,
+								render: (row) => {
+									const isGeneric = (d?: string) => !d || d.startsWith('item-') || d.startsWith('Item item-') || d === 'Institutional Item'
+									const masterItem = items.find((i: any) => i.id === row.itemId || i.code === row.itemId || (row.itemId && i.code === String(row.itemId).replace(/^item-/, '')) || (row.item?.code && i.code === row.item.code))
+									const candidateDesc = !isGeneric(row.item?.description) && row.item?.description !== `Item ${row.itemId}` ? row.item?.description : ''
+									const desc = masterItem?.description || candidateDesc || row.itemDescription || row.item?.description || (row.itemId ? String(row.itemId).replace(/^item-/, '') : 'Item')
+									const code = masterItem?.code || row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
+									return (
+										<div>
+											<p className='font-medium text-foreground'>{desc}</p>
+											{code && code !== desc && (
+												<p className='text-xs text-muted-foreground'>Code: {code}</p>
+											)}
+										</div>
+									)
+								},
 							},
 							{ key: 'quantityReceived', label: 'Received' },
 							{ key: 'unitPrice', label: 'Unit price' },
@@ -6871,23 +6903,36 @@ function Storage({ token }: { token: string }) {
 	}, [token, scanner])
 
 	const enrichedBatches = batches.map((b) => {
-		if (b.item?.description) return b
-		const resolved = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase())
+		const isGeneric = !b.item?.description || b.item.description.startsWith('item-') || b.item.description === `Item ${b.itemId}` || b.item.description === 'Institutional Item'
+		const resolved = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code))
+		const desc = (!isGeneric ? b.item?.description : '') || resolved?.description || b.itemDescription || b.item?.description || b.itemId
 		return {
 			...b,
-			item: resolved || b.item || { code: b.itemId, description: b.itemDescription || b.itemId }
+			item: {
+				...(b.item || {}),
+				...(resolved || {}),
+				code: resolved?.code || b.item?.code || b.itemId,
+				description: desc
+			}
 		}
 	})
 
 	const enrichedBalances = balances.map((b) => {
-		const resolvedItem = b.item?.description ? b.item : items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase())
+		const isGeneric = !b.item?.description || b.item.description.startsWith('item-') || b.item.description === `Item ${b.itemId}` || b.item.description === 'Institutional Item'
+		const resolvedItem = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code))
+		const desc = (!isGeneric ? b.item?.description : '') || resolvedItem?.description || b.itemDescription || b.item?.description || b.itemId || 'Item'
 		const resolvedBatch = b.batch?.batchNumber ? b.batch : batches.find((x) => x.id === b.batchId)
 		const resolvedLoc = b.storageLocation?.shelfNumber ? b.storageLocation : locations.find((l) => l.id === b.storageLocationId)
 		const resolvedStore = b.store?.name ? b.store : (master?.locations || master?.stores)?.find((s: any) => s.id === (b.storeId || resolvedLoc?.storeId))
 
 		return {
 			...b,
-			item: resolvedItem || b.item || { description: b.itemId || 'Item' },
+			item: {
+				...(b.item || {}),
+				...(resolvedItem || {}),
+				code: resolvedItem?.code || b.item?.code || b.itemId,
+				description: desc
+			},
 			batch: resolvedBatch || b.batch || { batchNumber: b.batchNumber || 'N/A' },
 			store: resolvedStore || b.store || { name: 'Main Store' },
 			storageLocation: resolvedLoc || b.storageLocation || {
@@ -7364,10 +7409,18 @@ function Storage({ token }: { token: string }) {
 							{
 								key: 'item',
 								label: 'Item',
-								render: (row) =>
-									row.item?.description
-										? `${row.item.code ? row.item.code + ' - ' : ''}${row.item.description}`
-										: (row.item?.code || row.itemId || 'Item'),
+								render: (row) => {
+									const desc = row.item?.description || row.itemDescription || row.itemId || 'Item'
+									const code = row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
+									return (
+										<div>
+											<p className='font-medium text-foreground'>{desc}</p>
+											{code && code !== desc && (
+												<p className='text-xs text-muted-foreground'>Code: {code}</p>
+											)}
+										</div>
+									)
+								},
 							},
 							{
 								key: 'batchNumber',
@@ -7404,7 +7457,18 @@ function Storage({ token }: { token: string }) {
 							{
 								key: 'item',
 								label: 'Item',
-								render: (row) => row.item?.description || row.item?.code || (row.itemId ? String(row.itemId) : 'Item'),
+								render: (row) => {
+									const desc = row.item?.description || row.itemDescription || row.itemId || 'Item'
+									const code = row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
+									return (
+										<div>
+											<p className='font-medium text-foreground'>{desc}</p>
+											{code && code !== desc && (
+												<p className='text-xs text-muted-foreground'>Code: {code}</p>
+											)}
+										</div>
+									)
+								},
 							},
 							{
 								key: 'batch',
@@ -7560,7 +7624,18 @@ function StockLedger({ token }: { token: string }) {
 					{
 						key: 'item',
 						label: 'Item',
-						render: (row) => row.item?.description,
+						render: (row) => {
+							const desc = row.item?.description || row.itemDescription || row.itemId || 'Item'
+							const code = row.item?.code || (row.itemId ? String(row.itemId).replace(/^item-/, '') : '')
+							return (
+								<div>
+									<p className='font-medium text-foreground'>{desc}</p>
+									{code && code !== desc && (
+										<p className='text-xs text-muted-foreground'>Code: {code}</p>
+									)}
+								</div>
+							)
+						},
 					},
 					{
 						key: 'batch',

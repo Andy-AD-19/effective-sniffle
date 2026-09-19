@@ -739,33 +739,66 @@ function findItem(itemId: string): any {
   return null;
 }
 
+function resolveItemFallback(itemId: string, existingItem?: any, descriptionHint?: string, codeHint?: string): any {
+  const found = findItem(itemId);
+  if (found) return found;
+
+  const candidateDesc = descriptionHint || existingItem?.description;
+  const isDescGeneric = !candidateDesc || 
+    candidateDesc.startsWith("Item item-") || 
+    candidateDesc === `Item ${itemId}` || 
+    candidateDesc === "Institutional Item";
+
+  const candidateCode = codeHint || existingItem?.code || (itemId ? String(itemId).replace(/^item-/, "") : "");
+
+  if (candidateCode && candidateCode !== itemId) {
+    const byCode = findItem(candidateCode);
+    if (byCode) return byCode;
+  }
+
+  if (existingItem && existingItem.description && !isDescGeneric) {
+    return {
+      ...existingItem,
+      id: existingItem.id || itemId,
+      code: candidateCode || itemId,
+      description: existingItem.description
+    };
+  }
+
+  if (descriptionHint && !isDescGeneric) {
+    return {
+      id: itemId,
+      code: candidateCode || itemId,
+      description: descriptionHint
+    };
+  }
+
+  return {
+    id: itemId,
+    code: candidateCode || itemId,
+    description: (candidateDesc && !isDescGeneric) ? candidateDesc : (candidateCode || "Institutional Item")
+  };
+}
+
 function enrichBatch(batch: any): any {
   if (!batch) return batch;
-  const item = findItem(batch.itemId);
+  const item = resolveItemFallback(batch.itemId, batch.item, batch.itemDescription, batch.itemCode);
   return {
     ...batch,
-    item: item || {
-      id: batch.itemId,
-      code: batch.itemCode || batch.itemId,
-      description: batch.itemDescription || (batch.itemCode ? `Item ${batch.itemCode}` : "Institutional Item")
-    }
+    item
   };
 }
 
 function enrichBalance(balance: any): any {
   if (!balance) return balance;
-  const item = findItem(balance.itemId);
+  const item = resolveItemFallback(balance.itemId, balance.item, balance.itemDescription, balance.itemCode);
   const batch = fallbackState.batches.find(b => b.id === balance.batchId) || null;
   const store = fallbackState.stores.find(s => s.id === balance.storeId) || fallbackState.stores[0] || null;
   const storageLocation = fallbackState.storageLocations.find(l => l.id === balance.storageLocationId) || null;
 
   return {
     ...balance,
-    item: item || {
-      id: balance.itemId,
-      code: balance.itemId,
-      description: balance.itemDescription || (balance.itemId ? `Item ${String(balance.itemId).replace(/^item-/, "")}` : "Institutional Item")
-    },
+    item,
     batch: batch ? enrichBatch(batch) : (balance.batch || { id: balance.batchId, batchNumber: balance.batchNumber || "N/A" }),
     store: store || { id: balance.storeId, name: "Main Store" },
     storageLocation: storageLocation || {
@@ -782,7 +815,7 @@ function enrichReceipt(receipt: any): any {
   if (!receipt) return receipt;
   const supplierDonor = fallbackState.suppliers.find(s => s.id === receipt.supplierDonorId) || null;
   const lines = (receipt.lines || []).map((line: any) => {
-    const item = findItem(line.itemId);
+    const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
     const fundingSource = fallbackState.fundingSources.find(f => f.id === line.fundingSourceId) || null;
     const batches = fallbackState.batches.filter(b => b.grnLineId === line.id || (b.itemId === line.itemId && b.batchNumber === line.batchNumber));
 
@@ -805,11 +838,7 @@ function enrichReceipt(receipt: any): any {
 
     return {
       ...line,
-      item: item || {
-        id: line.itemId,
-        code: line.itemId,
-        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
-      },
+      item,
       fundingSource,
       inspection,
       stockBatches: batches.map(enrichBatch)
@@ -828,17 +857,13 @@ function enrichIssue(issue: any): any {
   const dept = fallbackState.departments.find(d => d.id === issue.departmentId) || null;
   const user = fallbackState.users.find(u => u.id === issue.createdById) || null;
   const lines = (issue.lines || []).map((line: any) => {
-    const item = findItem(line.itemId);
+    const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
     const qty = Number(line.quantity ?? line.quantityRequested ?? line.quantityApproved ?? 0);
     return {
       ...line,
       quantity: qty,
       quantityRequested: Number(line.quantityRequested ?? qty),
-      item: item || {
-        id: line.itemId,
-        code: line.itemId,
-        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
-      }
+      item
     };
   });
 
@@ -854,7 +879,7 @@ function enrichIssue(issue: any): any {
 
 function enrichAdjustment(adj: any): any {
   if (!adj) return adj;
-  const item = findItem(adj.itemId);
+  const item = resolveItemFallback(adj.itemId, adj.item, adj.itemDescription, adj.itemCode);
   const user = fallbackState.users.find(u => u.id === adj.createdById) || null;
   const batch = fallbackState.batches.find(b => b.id === adj.batchId) || null;
   const qty = Number(adj.quantity ?? adj.quantityDelta ?? 0);
@@ -863,11 +888,7 @@ function enrichAdjustment(adj: any): any {
     ...adj,
     quantity: qty,
     quantityDelta: Number(adj.quantityDelta ?? qty),
-    item: item || {
-      id: adj.itemId,
-      code: adj.itemId,
-      description: adj.itemDescription || (adj.itemId ? `Item ${String(adj.itemId).replace(/^item-/, "")}` : "Institutional Item")
-    },
+    item,
     batch: batch ? enrichBatch(batch) : (adj.batch || { id: adj.batchId, batchNumber: adj.batchNumber || "N/A" }),
     requestedBy: user || { id: adj.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
   };
@@ -879,27 +900,19 @@ function enrichDisposal(disp: any): any {
   const reason = fallbackState.disposalReasons.find(r => r.id === disp.disposalReasonId) || null;
 
   const lines = (disp.lines || []).map((line: any) => {
-    const item = findItem(line.itemId);
+    const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
     const batch = fallbackState.batches.find(b => b.id === line.batchId) || null;
     return {
       ...line,
       quantity: Number(line.quantity ?? 1),
-      item: item || {
-        id: line.itemId,
-        code: line.itemId,
-        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
-      },
+      item,
       batch: batch ? enrichBatch(batch) : (line.batch || { id: line.batchId, batchNumber: line.batchNumber || "N/A" })
     };
   });
 
   let topItem = null;
   if (disp.itemId) {
-    topItem = findItem(disp.itemId) || {
-      id: disp.itemId,
-      code: disp.itemId,
-      description: disp.itemDescription || (disp.itemId ? `Item ${String(disp.itemId).replace(/^item-/, "")}` : "Institutional Item")
-    };
+    topItem = resolveItemFallback(disp.itemId, null, disp.itemDescription, disp.itemCode);
   } else if (lines.length > 0 && lines[0].item) {
     topItem = lines[0].item;
   }
@@ -927,15 +940,11 @@ function enrichReturn(ret: any): any {
   if (!ret) return ret;
   const dept = fallbackState.departments.find(d => d.id === ret.departmentId) || null;
   const lines = (ret.lines || []).map((line: any) => {
-    const item = findItem(line.itemId);
+    const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
     return {
       ...line,
       quantity: Number(line.quantity ?? line.quantityReturned ?? 1),
-      item: item || {
-        id: line.itemId,
-        code: line.itemId,
-        description: line.itemDescription || (line.itemId ? `Item ${String(line.itemId).replace(/^item-/, "")}` : "Institutional Item")
-      }
+      item
     };
   });
 
@@ -945,6 +954,207 @@ function enrichReturn(ret: any): any {
     departmentName: dept?.name || ret.departmentId || "General Department",
     lines
   };
+}
+
+function enrichLedgerEntry(entry: any): any {
+  if (!entry) return entry;
+  const item = resolveItemFallback(entry.itemId, entry.item, entry.itemDescription, entry.itemCode);
+  return {
+    ...entry,
+    item
+  };
+}
+
+async function getOrFetchReceipt(id: string, env: Env): Promise<any> {
+  let receipt = fallbackState.receipts.find(r => r.id === id || r.grnNumber === id);
+  if (env.DB && (!receipt || !receipt.lines || receipt.lines.length === 0)) {
+    try {
+      const dbNote = await env.DB.prepare(
+        "SELECT * FROM GoodsReceivingNote WHERE id = ? OR grnNumber = ?"
+      ).bind(id, id).first<any>();
+      if (dbNote) {
+        const linesQuery = await env.DB.prepare(`
+          SELECT l.*, i.code AS itemCode, i.description AS itemDescription, i.unitId, i.categoryId, i.modelNumber, i.serialNumber
+          FROM GoodsReceivingLine l
+          LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
+          WHERE l.grnId = ?
+        `).bind(dbNote.id).all<any>();
+
+        let inspections: any[] = [];
+        try {
+          const inspRes = await env.DB.prepare(
+            "SELECT * FROM Inspection WHERE grnLineId IN (SELECT id FROM GoodsReceivingLine WHERE grnId = ?)"
+          ).bind(dbNote.id).all<any>();
+          inspections = inspRes.results || [];
+        } catch (e) {}
+
+        const lines = (linesQuery.results || []).map((l: any) => {
+          const insp = inspections.find((ins: any) => ins.grnLineId === l.id);
+          const accepted = l.quantityAccepted !== null && l.quantityAccepted !== undefined ? Number(l.quantityAccepted) : insp ? Number(insp.quantityAccepted) : undefined;
+          const rejected = l.quantityRejected !== null && l.quantityRejected !== undefined ? Number(l.quantityRejected) : insp ? Number(insp.quantityRejected) : 0;
+          return {
+            ...l,
+            quantityReceived: Number(l.quantityReceived || 0),
+            quantityAccepted: accepted,
+            quantityRejected: rejected,
+            unitPrice: Number(l.unitPrice || 0),
+            inspection: insp || (accepted !== undefined ? {
+              id: l.id + "-insp",
+              grnLineId: l.id,
+              quantityVerified: Number(l.quantityReceived || 0),
+              quantityAccepted: accepted,
+              quantityRejected: rejected,
+              outcome: accepted === 0 ? "REJECTED" : rejected > 0 ? "PARTIALLY_ACCEPTED" : "ACCEPTED",
+              qualityStatus: l.qualityStatus || "PASS"
+            } : null)
+          };
+        });
+
+        const fetched = {
+          ...dbNote,
+          lines
+        };
+
+        const existingIdx = fallbackState.receipts.findIndex(r => r.id === dbNote.id);
+        if (existingIdx >= 0) {
+          fallbackState.receipts[existingIdx] = fetched;
+        } else {
+          fallbackState.receipts.unshift(fetched);
+        }
+        receipt = fetched;
+      }
+    } catch (err) {
+      console.warn("[getOrFetchReceipt Error]", err);
+    }
+  }
+  return receipt || null;
+}
+
+async function getOrFetchIssue(id: string, env: Env): Promise<any> {
+  let issue = fallbackState.issues.find(i => i.id === id || i.sivNumber === id);
+  if (env.DB && (!issue || !issue.lines || issue.lines.length === 0)) {
+    try {
+      const dbVoucher = await env.DB.prepare(
+        "SELECT * FROM StockIssueVoucher WHERE id = ? OR sivNumber = ?"
+      ).bind(id, id).first<any>();
+      if (dbVoucher) {
+        const linesQuery = await env.DB.prepare(`
+          SELECT l.*, i.code AS itemCode, i.description AS itemDescription
+          FROM StockIssueLine l
+          LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
+          WHERE l.issueId = ?
+        `).bind(dbVoucher.id).all<any>();
+
+        const lines = (linesQuery.results || []).map((l: any) => ({
+          ...l,
+          quantity: Number(l.quantityRequested || l.quantity || 0),
+          quantityRequested: Number(l.quantityRequested || l.quantity || 0),
+          quantityApproved: Number(l.quantityApproved || 0),
+          quantityIssued: Number(l.quantityIssued || 0),
+          unitPrice: Number(l.unitPrice || 0)
+        }));
+
+        const fetched = {
+          ...dbVoucher,
+          requestNumber: dbVoucher.sivNumber,
+          lines
+        };
+
+        const existingIdx = fallbackState.issues.findIndex(i => i.id === dbVoucher.id);
+        if (existingIdx >= 0) {
+          fallbackState.issues[existingIdx] = fetched;
+        } else {
+          fallbackState.issues.unshift(fetched);
+        }
+        issue = fetched;
+      }
+    } catch (err) {
+      console.warn("[getOrFetchIssue Error]", err);
+    }
+  }
+  return issue || null;
+}
+
+async function getOrFetchReturn(id: string, env: Env): Promise<any> {
+  let ret = fallbackState.returns.find(r => r.id === id || r.returnNumber === id);
+  if (env.DB && (!ret || !ret.lines || ret.lines.length === 0)) {
+    try {
+      const dbReturn = await env.DB.prepare(
+        "SELECT * FROM ItemReturn WHERE id = ? OR returnNumber = ?"
+      ).bind(id, id).first<any>();
+      if (dbReturn) {
+        const linesQuery = await env.DB.prepare(`
+          SELECT l.*, i.code AS itemCode, i.description AS itemDescription
+          FROM ItemReturnLine l
+          LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
+          WHERE l.returnId = ?
+        `).bind(dbReturn.id).all<any>();
+
+        const fetched = {
+          ...dbReturn,
+          lines: linesQuery.results || []
+        };
+
+        const existingIdx = fallbackState.returns.findIndex(r => r.id === dbReturn.id);
+        if (existingIdx >= 0) {
+          fallbackState.returns[existingIdx] = fetched;
+        } else {
+          fallbackState.returns.unshift(fetched);
+        }
+        ret = fetched;
+      }
+    } catch (err) {
+      console.warn("[getOrFetchReturn Error]", err);
+    }
+  }
+  return ret || null;
+}
+
+async function getOrFetchAdjustment(id: string, env: Env): Promise<any> {
+  let adj = fallbackState.adjustments.find(a => a.id === id || a.adjustmentNumber === id);
+  if (env.DB && !adj) {
+    try {
+      const dbAdj = await env.DB.prepare(`
+        SELECT a.*, i.code AS itemCode, i.description AS itemDescription
+        FROM StockAdjustment a
+        LEFT JOIN Item i ON a.itemId = i.id OR a.itemId = i.code
+        WHERE a.id = ? OR a.adjustmentNumber = ?
+      `).bind(id, id).first<any>();
+      if (dbAdj) {
+        const fetched = {
+          ...dbAdj,
+          status: dbAdj.approvedById ? "APPROVED" : "PENDING_APPROVAL",
+          quantity: Math.abs(Number(dbAdj.quantityDelta || 0))
+        };
+        fallbackState.adjustments.unshift(fetched);
+        adj = fetched;
+      }
+    } catch (err) {
+      console.warn("[getOrFetchAdjustment Error]", err);
+    }
+  }
+  return adj || null;
+}
+
+async function getOrFetchDisposal(id: string, env: Env): Promise<any> {
+  let disp = fallbackState.disposals.find(d => d.id === id || d.disposalNumber === id);
+  if (env.DB && !disp) {
+    try {
+      const dbDisp = await env.DB.prepare(`
+        SELECT d.*, i.code AS itemCode, i.description AS itemDescription
+        FROM StockDisposal d
+        LEFT JOIN Item i ON d.itemId = i.id OR d.itemId = i.code
+        WHERE d.id = ? OR d.disposalNumber = ?
+      `).bind(id, id).first<any>();
+      if (dbDisp) {
+        fallbackState.disposals.unshift(dbDisp);
+        disp = dbDisp;
+      }
+    } catch (err) {
+      console.warn("[getOrFetchDisposal Error]", err);
+    }
+  }
+  return disp || null;
 }
 
 export default {
@@ -1876,6 +2086,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path.startsWith("/items/") && method === "GET") {
       const id = path.split("/")[2];
       const unslugged = id.startsWith("item-") ? id.slice(5) : id;
+      let rawItem: any = null;
       if (env.DB) {
         try {
           const dbItem = await env.DB.prepare(`
@@ -1888,12 +2099,84 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
                OR replace(lower(id), 'item-', '') = lower(?)
             LIMIT 1
           `).bind(id, id, id, unslugged, `item-${id}`, unslugged).first<any>();
-          if (dbItem) return jsonResponse(enrichItem(dbItem));
+          if (dbItem) rawItem = dbItem;
         } catch (e) {}
       }
-      const item = findItem(id);
-      if (!item) return jsonResponse({ message: "Item not found" }, 404);
-      return jsonResponse(item);
+      if (!rawItem) rawItem = findItem(id);
+      if (!rawItem) return jsonResponse({ message: "Item not found" }, 404);
+
+      const enriched = enrichItem(rawItem);
+
+      // Build bin card movements
+      let movements: any[] = [];
+      if (env.DB) {
+        try {
+          const mRes = await env.DB.prepare(`
+            SELECT * FROM StockLedgerEntry 
+            WHERE itemId = ? OR itemId = ?
+            ORDER BY createdAt ASC
+          `).bind(rawItem.id, rawItem.code || rawItem.id).all<any>();
+          if (mRes.results && mRes.results.length > 0) movements = mRes.results;
+        } catch (e) {}
+      }
+      if (movements.length === 0) {
+        movements = fallbackState.ledger.filter(l => l.itemId === rawItem.id || (rawItem.code && l.itemId === rawItem.code));
+      }
+
+      let balance = 0;
+      const binCardRows = [
+        {
+          id: `${rawItem.id}-registration`,
+          date: rawItem.createdAt || new Date().toISOString(),
+          reference: "Item registration",
+          transactionType: "REGISTRATION",
+          itemDescription: enriched.description,
+          source: "System",
+          destination: enriched.defaultLocation?.name ?? "Main Store",
+          provider: "N/A",
+          department: "N/A",
+          batchNumber: "N/A",
+          expiryDate: null,
+          unitCost: null,
+          totalPrice: 0,
+          receivedQuantity: 0,
+          issuedQuantity: 0,
+          balance: 0,
+          remarks: "Item opened in the inventory register."
+        }
+      ];
+
+      for (const m of movements) {
+        const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+        const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+        const net = qtyIn > 0 ? qtyIn : -qtyOut;
+        balance += net;
+        const unitCost = m.unitCost ? Number(m.unitCost) : null;
+        binCardRows.push({
+          id: m.id,
+          date: m.postedAt || m.createdAt,
+          reference: m.referenceId || m.sourceId || m.entryNumber || "TXN",
+          transactionType: m.entryType || m.type || "STOCK_MOVEMENT",
+          itemDescription: enriched.description,
+          source: qtyIn > 0 ? "Received stock" : "Store",
+          destination: qtyOut > 0 ? "Issuing department" : "Store",
+          provider: "N/A",
+          department: "N/A",
+          batchNumber: m.batchNumber || "N/A",
+          expiryDate: m.expiryDate || null,
+          unitCost,
+          totalPrice: unitCost ? Math.abs(net) * unitCost : null,
+          receivedQuantity: qtyIn,
+          issuedQuantity: qtyOut,
+          balance,
+          remarks: m.notes || ""
+        });
+      }
+
+      return jsonResponse({
+        ...enriched,
+        binCard: binCardRows
+      });
     }
 
     if (path.startsWith("/items/") && (method === "PATCH" || method === "PUT")) {
@@ -2124,19 +2407,23 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const itemId = url.searchParams.get("itemId");
       if (env.DB) {
         try {
-          let query = "SELECT * FROM StockLedgerEntry";
+          let query = `
+            SELECT m.*, i.code AS itemCode, i.description AS itemDescription
+            FROM StockLedgerEntry m
+            LEFT JOIN Item i ON m.itemId = i.id OR m.itemId = i.code
+          `;
           const params: any[] = [];
-          if (itemId) { query += " WHERE itemId = ?"; params.push(itemId); }
-          query += " ORDER BY createdAt DESC";
+          if (itemId) { query += " WHERE m.itemId = ? OR m.itemId = ?"; params.push(itemId, itemId.replace(/^item-/, "")); }
+          query += " ORDER BY m.createdAt DESC";
           const res = await env.DB.prepare(query).bind(...params).all<any>();
           if (res.results && res.results.length > 0) {
-            return jsonResponse(res.results);
+            return jsonResponse(res.results.map(enrichLedgerEntry));
           }
         } catch (e) {}
       }
       let list = fallbackState.ledger;
-      if (itemId) list = list.filter(l => l.itemId === itemId);
-      return jsonResponse(list);
+      if (itemId) list = list.filter(l => l.itemId === itemId || l.itemId === itemId.replace(/^item-/, ""));
+      return jsonResponse(list.map(enrichLedgerEntry));
     }
 
     // 9. Receipts (Model 19 / GRN)
@@ -2146,7 +2433,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           const notes = await env.DB.prepare("SELECT * FROM GoodsReceivingNote ORDER BY createdAt DESC").all<any>();
           if (notes.results && notes.results.length > 0) {
-            const lines = await env.DB.prepare("SELECT * FROM GoodsReceivingLine").all<any>();
+            const lines = await env.DB.prepare(`
+              SELECT l.*, i.code AS itemCode, i.description AS itemDescription, i.unitId, i.categoryId, i.modelNumber, i.serialNumber
+              FROM GoodsReceivingLine l
+              LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
+            `).all<any>();
             let list = notes.results.map((n: any) => ({
               ...n,
               lines: (lines.results || []).filter((l: any) => l.grnId === n.id)
@@ -2193,12 +2484,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         receivedAt: new Date().toISOString(),
         createdById: user?.id || "usr-admin",
         lines: (body.lines || []).map((l: any) => {
-          const resolvedItem = fallbackState.items.find(i => i.id === l.itemId || (i.code && i.code.toLowerCase() === String(l.itemId).toLowerCase()));
+          const resolvedItem = findItem(l.itemId);
           const actualItemId = resolvedItem ? resolvedItem.id : (l.itemId || "");
           return {
             id: uid("line"),
             grnId: receiptId,
             itemId: actualItemId,
+            itemDescription: resolvedItem?.description,
+            itemCode: resolvedItem?.code,
             quantityReceived: Number(l.quantityReceived),
             quantityAccepted: undefined,
             quantityRejected: 0,
@@ -2241,12 +2534,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/receipts/") && path.endsWith("/submit") && method === "POST") {
       const id = path.split("/")[2];
-      const receipt = fallbackState.receipts.find(r => r.id === id);
+      const receipt = await getOrFetchReceipt(id, env);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       receipt.status = "PENDING_INSPECTION";
       if (env.DB) {
         try {
-          await env.DB.prepare("UPDATE GoodsReceivingNote SET status = 'PENDING_INSPECTION', updatedAt = datetime('now') WHERE id = ?").bind(id).run();
+          await env.DB.prepare("UPDATE GoodsReceivingNote SET status = 'PENDING_INSPECTION', updatedAt = datetime('now') WHERE id = ?").bind(receipt.id).run();
         } catch (e) {}
       }
       return jsonResponse(enrichReceipt(receipt));
@@ -2264,6 +2557,20 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           foundLine = l;
           break;
         }
+      }
+      if (!foundLine && env.DB) {
+        try {
+          const dbLine = await env.DB.prepare(`
+            SELECT l.*, i.code AS itemCode, i.description AS itemDescription
+            FROM GoodsReceivingLine l
+            LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
+            WHERE l.id = ?
+          `).bind(lineId).first<any>();
+          if (dbLine) {
+            foundReceipt = await getOrFetchReceipt(dbLine.grnId, env);
+            foundLine = (foundReceipt?.lines || []).find((line: any) => line.id === lineId) || dbLine;
+          }
+        } catch (e) {}
       }
       if (!foundLine) return jsonResponse({ message: "Receipt line not found" }, 404);
 
@@ -2291,6 +2598,19 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         qualityNotes: foundLine.qualityNotes,
         rejectionReason: foundLine.rejectionReason
       };
+
+      if (env.DB) {
+        try {
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO Inspection (id, grnLineId, quantityVerified, quantityAccepted, quantityRejected, qualityStatus, outcome, notes, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          ).bind(foundLine.inspection.id, lineId, foundLine.quantityVerified, accepted, rejected, qualityStatus, outcome, foundLine.qualityNotes).run();
+
+          await env.DB.prepare(
+            `UPDATE GoodsReceivingLine SET quantityAccepted = ?, quantityRejected = ?, qualityStatus = ? WHERE id = ?`
+          ).bind(accepted, rejected, qualityStatus, lineId).run();
+        } catch (e) {}
+      }
 
       // Create or update pending storage batch if accepted > 0
       if (accepted > 0) {
@@ -2347,7 +2667,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/receipts/") && method === "GET") {
       const id = path.split("/")[2];
-      const receipt = fallbackState.receipts.find(r => r.id === id);
+      const receipt = await getOrFetchReceipt(id, env);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       return jsonResponse(enrichReceipt(receipt));
     }
@@ -2423,7 +2743,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/issues/") && path.endsWith("/pick-list") && method === "GET") {
       const id = path.split("/")[2];
-      const rawIssue = fallbackState.issues.find(i => i.id === id);
+      const rawIssue = await getOrFetchIssue(id, env);
       const issue = rawIssue ? enrichIssue(rawIssue) : null;
       return jsonResponse({
         issue,
@@ -2433,7 +2753,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/issues/") && path.endsWith("/approve") && method === "POST") {
       const id = path.split("/")[2];
-      const issue = fallbackState.issues.find(i => i.id === id);
+      const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "APPROVED";
       (issue.lines || []).forEach((l: any) => {
@@ -2443,9 +2763,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'APPROVED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(user?.id || "usr-admin", id).run();
+            .bind(user?.id || "usr-admin", issue.id).run();
           await env.DB.prepare("UPDATE StockIssueLine SET quantityApproved = quantityRequested WHERE issueId = ?")
-            .bind(id).run();
+            .bind(issue.id).run();
         } catch (e) {}
       }
 
@@ -2454,14 +2774,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/issues/") && path.endsWith("/reject") && method === "POST") {
       const id = path.split("/")[2];
-      const issue = fallbackState.issues.find(i => i.id === id);
+      const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "REJECTED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'REJECTED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(user?.id || "usr-admin", id).run();
+            .bind(user?.id || "usr-admin", issue.id).run();
         } catch (e) {}
       }
 
@@ -2470,7 +2790,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/issues/") && path.endsWith("/issue") && method === "POST") {
       const id = path.split("/")[2];
-      const issue = fallbackState.issues.find(i => i.id === id);
+      const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "ISSUED";
       for (const line of issue.lines || []) {
@@ -2501,7 +2821,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'ISSUED', issuedById = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(user?.id || "usr-admin", id).run();
+            .bind(user?.id || "usr-admin", issue.id).run();
         } catch (e) {}
       }
 
@@ -2510,14 +2830,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/issues/") && path.endsWith("/receive") && method === "POST") {
       const id = path.split("/")[2];
-      const issue = fallbackState.issues.find(i => i.id === id);
+      const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "COMPLETED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'COMPLETED', updatedAt = datetime('now') WHERE id = ?")
-            .bind(id).run();
+            .bind(issue.id).run();
         } catch (e) {}
       }
 
@@ -2570,14 +2890,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path.startsWith("/returns/") && path.endsWith("/inspect") && method === "POST") {
       const id = path.split("/")[2];
       const body = await request.json<any>();
-      const ret = fallbackState.returns.find(r => r.id === id);
+      const ret = await getOrFetchReturn(id, env);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
       ret.status = body.outcome === "APPROVED" ? "ACCEPTED" : (body.outcome === "REJECTED" ? "REJECTED" : "PARTIALLY_ACCEPTED");
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE ItemReturn SET status = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(ret.status, id).run();
+            .bind(ret.status, ret.id).run();
         } catch (e) {}
       }
 
@@ -2586,7 +2906,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/returns/") && method === "GET") {
       const id = path.split("/")[2];
-      const ret = fallbackState.returns.find(r => r.id === id);
+      const ret = await getOrFetchReturn(id, env);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
       return jsonResponse(enrichReturn(ret));
     }
@@ -2778,14 +3098,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/adjustments/") && path.endsWith("/approve") && method === "POST") {
       const id = path.split("/")[2];
-      const adj = fallbackState.adjustments.find(a => a.id === id);
+      const adj = await getOrFetchAdjustment(id, env);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "APPROVED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockAdjustment SET approvedById = ? WHERE id = ?")
-            .bind(user?.id || "usr-admin", id).run();
+            .bind(user?.id || "usr-admin", adj.id).run();
         } catch (e) {}
       }
 
@@ -2794,14 +3114,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/adjustments/") && path.endsWith("/reject") && method === "POST") {
       const id = path.split("/")[2];
-      const adj = fallbackState.adjustments.find(a => a.id === id);
+      const adj = await getOrFetchAdjustment(id, env);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "REJECTED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockAdjustment SET approvedById = 'REJECTED' WHERE id = ?")
-            .bind(id).run();
+            .bind(adj.id).run();
         } catch (e) {}
       }
 
@@ -2847,14 +3167,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/disposals/") && path.endsWith("/approve") && method === "POST") {
       const id = path.split("/")[2];
-      const disp = fallbackState.disposals.find(d => d.id === id);
+      const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "APPROVED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'APPROVED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(user?.id || "usr-admin", id).run();
+            .bind(user?.id || "usr-admin", disp.id).run();
         } catch (e) {}
       }
 
@@ -2864,7 +3184,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path.startsWith("/disposals/") && path.endsWith("/reject") && method === "POST") {
       const id = path.split("/")[2];
       const body = await request.json<any>().catch(() => ({}));
-      const disp = fallbackState.disposals.find(d => d.id === id);
+      const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "REJECTED";
       disp.rejectionNotes = body.notes || body.reason || "Rejected by Approver";
@@ -2872,7 +3192,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'REJECTED', approvedById = ?, remarks = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(user?.id || "usr-admin", disp.rejectionNotes, id).run();
+            .bind(user?.id || "usr-admin", disp.rejectionNotes, disp.id).run();
         } catch (e) {}
       }
 
@@ -2881,14 +3201,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path.startsWith("/disposals/") && path.endsWith("/dispose") && method === "POST") {
       const id = path.split("/")[2];
-      const disp = fallbackState.disposals.find(d => d.id === id);
+      const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "DISPOSED";
 
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'DISPOSED', updatedAt = datetime('now') WHERE id = ?")
-            .bind(id).run();
+            .bind(disp.id).run();
         } catch (e) {}
       }
 
