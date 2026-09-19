@@ -22,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "fmoh-inventory-db",
-      "database_id": "fmoh-inventory-db-prod"
+      "database_id": "9fd0f230-c296-4c37-bf15-f5f5d16b2229"
     }
   ]
 }
