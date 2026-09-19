@@ -453,7 +453,7 @@ const fallbackState = {
       disposalNumber: "DSP-2026-001",
       itemId: "item-screw",
       batchId: "batch-screw-01",
-      disposalReasonId: "OBSOLETE",
+      reasonId: "OBSOLETE",
       reason: "Damaged during store reorganization",
       status: "PENDING_APPROVAL",
       createdById: "usr-storekeeper",
@@ -540,21 +540,57 @@ async function signJwt(payload: any, secret: string): Promise<string> {
 }
 
 // Helper: Parse Bearer token
-function parseAuthUser(request: Request): any | null {
+async function parseAuthUser(request: Request, secret: string): Promise<any | null> {
   const auth = request.headers.get("Authorization");
   if (!auth || !auth.startsWith("Bearer ")) return null;
   const token = auth.slice(7);
   try {
     const parts = token.split(".");
-    if (parts.length < 2) return null;
+    if (parts.length < 3) return null;
+    
+    // Validate signature
+    const headerPayload = parts[0] + "." + parts[1];
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+    
+    // Decode base64url signature
+    const sigString = atob(parts[2].replace(/-/g, "+").replace(/_/g, "/"));
+    const sigBytes = new Uint8Array(sigString.length);
+    for (let i = 0; i < sigString.length; i++) {
+      sigBytes[i] = sigString.charCodeAt(i);
+    }
+    
+    const isValid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      sigBytes,
+      encoder.encode(headerPayload)
+    );
+    
+    if (!isValid) return null;
+    
     const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    if (payload.exp && Date.now() >= payload.exp * 1000) {
+      return null; // Expired
+    }
     return payload;
-  } catch {
+  } catch (e) {
+    console.error("[JWT Error]", e);
     return null;
   }
 }
 
 // Auto-ID generator
+function getPathSegment(path: string, index: number): string {
+  return path.split("/").filter(Boolean)[index] || "";
+}
+
 function uid(prefix = "id"): string {
   return `${prefix}-${Math.random().toString(36).substring(2, 9)}`;
 }
@@ -897,7 +933,7 @@ function enrichAdjustment(adj: any): any {
 function enrichDisposal(disp: any): any {
   if (!disp) return disp;
   const user = fallbackState.users.find(u => u.id === disp.createdById) || null;
-  const reason = fallbackState.disposalReasons.find(r => r.id === disp.disposalReasonId) || null;
+  const reason = fallbackState.disposalReasons.find(r => r.id === disp.reasonId) || null;
 
   const lines = (disp.lines || []).map((line: any) => {
     const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
@@ -931,7 +967,7 @@ function enrichDisposal(disp: any): any {
     item: topItem,
     batch: batch ? enrichBatch(batch) : (disp.batch || { id: disp.batchId, batchNumber: disp.batchNumber || "N/A" }),
     lines: effectiveLines,
-    disposalReason: reason || (disp.disposalReasonId ? { id: disp.disposalReasonId, code: disp.disposalReasonId, description: disp.reason || disp.disposalReasonId } : null),
+    disposalReason: reason || (disp.reasonId ? { id: disp.reasonId, code: disp.reasonId, description: disp.reason || disp.reasonId } : null),
     requestedBy: user || { id: disp.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
   };
 }
@@ -986,7 +1022,7 @@ async function getOrFetchReceipt(id: string, env: Env): Promise<any> {
             "SELECT * FROM Inspection WHERE grnLineId IN (SELECT id FROM GoodsReceivingLine WHERE grnId = ?)"
           ).bind(dbNote.id).all<any>();
           inspections = inspRes.results || [];
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
 
         const lines = (linesQuery.results || []).map((l: any) => {
           const insp = inspections.find((ins: any) => ins.grnLineId === l.id);
@@ -1191,7 +1227,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
   const path = url.pathname.replace(/^\/api/, "") || "/";
   const method = request.method;
   const jwtSecret = env.JWT_SECRET ?? "fmoh-institutional-inventory-secret-key-2026";
-  const user = parseAuthUser(request);
+  const user = await parseAuthUser(request, jwtSecret);
 
   try {
     // If D1 database is connected, synchronize master item catalog into memory cache for instant lookups
@@ -1208,7 +1244,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }
           }
         }
-      } catch (e) {}
+      } catch (e) { console.error("[D1 Error]", e); }
     }
 
     // 1. Health Check
@@ -1218,7 +1254,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("SELECT 1").first();
           dbOk = true;
-        } catch {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse({
         status: "ok",
@@ -1230,7 +1266,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 2. Auth: Login
     if (path === "/auth/login" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const email = body.email?.trim()?.toLowerCase();
       const password = body.password;
 
@@ -1240,7 +1277,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           const res = await env.DB.prepare("SELECT * FROM User WHERE lower(email) = ?").bind(email).first<any>();
           if (res) foundUser = res;
-        } catch {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       if (!foundUser) {
@@ -1252,7 +1289,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       // Password verification (Accepts standard seed passwords or stored user password)
-      const validPw = (password === "Password123!" || password === "Admin12345!" || (foundUser.password && password === foundUser.password));
+      const validPw = ((env.ENVIRONMENT !== "production" && password === "Password123!") || ((foundUser.password || foundUser.passwordHash) && password === (foundUser.password || foundUser.passwordHash)));
       if (!validPw) {
         return jsonResponse({ message: "Invalid email or password." }, 401);
       }
@@ -1369,7 +1406,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
       // POST /admin/master-data/:model
       if (method === "POST" && !targetId) {
-        const body = await request.json<any>();
+        let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
         if (!body.name || !body.name.trim()) {
           return jsonResponse({ message: "Name is required" }, 400);
         }
@@ -1429,7 +1467,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
       // PATCH /admin/master-data/:model/:id
       if (method === "PATCH" && targetId) {
-        const body = await request.json<any>();
+        let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
         let updated: any = null;
 
         if (list) {
@@ -1487,7 +1526,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
       // DELETE /admin/master-data/:model
       if (method === "DELETE" && !targetId) {
-        const body = await request.json<any>();
+        let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
         const ids: string[] = body?.ids || [];
         if (!ids.length) {
           return jsonResponse({ message: "No records selected for deletion" }, 400);
@@ -1532,7 +1572,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/admin/users" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const newUser = {
         id: uid("usr"),
         email: body.email,
@@ -1548,8 +1589,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/admin/users/") && path.endsWith("/active") && method === "PATCH") {
-      const id = path.split("/")[3];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 2);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const userItem = fallbackState.users.find(u => u.id === id);
       if (!userItem) return jsonResponse({ message: "User not found" }, 404);
       userItem.active = body.active ? 1 : 0;
@@ -1558,8 +1600,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/admin/users/") && method === "PATCH") {
-      const id = path.split("/")[3];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 2);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const idx = fallbackState.users.findIndex(u => u.id === id);
       if (idx === -1) return jsonResponse({ message: "User not found" }, 404);
       fallbackState.users[idx] = { ...fallbackState.users[idx], ...body };
@@ -1636,7 +1679,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/items" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       if (!body.code || !body.description || !body.categoryId || !body.unitId) {
         return jsonResponse({ message: "Code, description, category, and unit are required." }, 400);
       }
@@ -1944,9 +1988,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
                 uid("item"), code, description, "GENERAL_SUPPLY", category.id, unit.id, defaultStore.id,
                 0, 0, levels, funding.id, 0, 0, 1
               ).run();
-            } catch (d1Err) {
-              // Ignore if schema differs in D1
-            }
+            } catch (d1Err) { console.error("[D1 Error]", d1Err); }
           }
 
           imported++;
@@ -1984,7 +2026,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           errors
         });
       } catch (err: any) {
-        return jsonResponse({
+    console.error("[Unhandled API Error]", err);
+    return jsonResponse({
           message: err?.message || "Failed to process Excel workbook import.",
           imported: 0,
           created: 0,
@@ -1996,8 +2039,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/items/") && path.endsWith("/files") && method === "PATCH") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
       Object.assign(item, body);
@@ -2005,11 +2049,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/items/") && path.endsWith("/deactivate") && method === "PATCH") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       if (env.DB) {
         try {
           await env.DB.prepare(`UPDATE Item SET active = 0, updatedAt = datetime('now') WHERE id = ?`).bind(id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       const item = fallbackState.items.find(i => i.id === id);
       if (!item) return jsonResponse({ message: "Item not found" }, 404);
@@ -2018,14 +2062,15 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/items/") && path.endsWith("/custody") && method === "GET") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const records = fallbackState.assetCustody.filter(c => c.itemId === id);
       return jsonResponse(records);
     }
 
     if (path.startsWith("/items/") && path.endsWith("/custody") && method === "POST") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const custody = {
         id: uid("cst"),
         itemId: id,
@@ -2038,8 +2083,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/asset-custody/") && path.endsWith("/return") && method === "PATCH") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const custody = fallbackState.assetCustody.find(c => c.id === id);
       if (!custody) return jsonResponse({ message: "Custody record not found" }, 404);
       custody.status = "RETURNED";
@@ -2050,8 +2096,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/asset-custody/") && method === "PATCH") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const custody = fallbackState.assetCustody.find(c => c.id === id);
       if (!custody) return jsonResponse({ message: "Custody record not found" }, 404);
       Object.assign(custody, body);
@@ -2076,7 +2123,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       return new Response(csvRows.join("\n"), {
         status: 200,
         headers: {
-          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": 'attachment; filename="inventory-items-export.xlsx"',
           "Access-Control-Allow-Origin": "*"
         }
@@ -2084,7 +2131,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/items/") && method === "GET") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const unslugged = id.startsWith("item-") ? id.slice(5) : id;
       let rawItem: any = null;
       if (env.DB) {
@@ -2100,7 +2147,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             LIMIT 1
           `).bind(id, id, id, unslugged, `item-${id}`, unslugged).first<any>();
           if (dbItem) rawItem = dbItem;
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       if (!rawItem) rawItem = findItem(id);
       if (!rawItem) return jsonResponse({ message: "Item not found" }, 404);
@@ -2117,7 +2164,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             ORDER BY createdAt ASC
           `).bind(rawItem.id, rawItem.code || rawItem.id).all<any>();
           if (mRes.results && mRes.results.length > 0) movements = mRes.results;
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       if (movements.length === 0) {
         movements = fallbackState.ledger.filter(l => l.itemId === rawItem.id || (rawItem.code && l.itemId === rawItem.code));
@@ -2180,8 +2227,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/items/") && (method === "PATCH" || method === "PUT")) {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       if (env.DB) {
         try {
           await env.DB.prepare(`
@@ -2209,7 +2257,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             body.maximumStock != null ? Number(body.maximumStock) : null,
             id
           ).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       const idx = fallbackState.items.findIndex(i => i.id === id);
       if (idx === -1) return jsonResponse({ message: "Item not found" }, 404);
@@ -2223,7 +2271,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/storage-locations" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const { id: rawLocId, ...locData } = body;
       const newLoc = {
         ...locData,
@@ -2236,8 +2285,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/storage-locations/") && path.endsWith("/active") && method === "PATCH") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const loc = fallbackState.storageLocations.find(l => l.id === id);
       if (!loc) return jsonResponse({ message: "Storage location not found" }, 404);
       loc.isActive = body.active ? 1 : 0;
@@ -2245,8 +2295,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/storage-locations/") && method === "PATCH") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const loc = fallbackState.storageLocations.find(l => l.id === id);
       if (!loc) return jsonResponse({ message: "Storage location not found" }, 404);
       Object.assign(loc, body);
@@ -2260,20 +2311,21 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           if (res.results && res.results.length > 0) {
             return jsonResponse(res.results.map(enrichBatch));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.batches.map(enrichBatch));
     }
 
     if (path.startsWith("/stock-batches/") && path.endsWith("/allocate") && method === "POST") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       let batch = fallbackState.batches.find(b => b.id === id);
       if (env.DB && !batch) {
         try {
           const dbBatch = await env.DB.prepare("SELECT * FROM StockBatch WHERE id = ?").bind(id).first<any>();
           if (dbBatch) batch = dbBatch;
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       if (!batch) return jsonResponse({ message: "Batch not found" }, 404);
       
@@ -2345,7 +2397,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             `INSERT INTO StockLedgerEntry (id, itemId, batchId, storeId, storageLocationId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
              VALUES (?, ?, ?, ?, ?, 'RECEIPT', ?, 0, ?, ?, 'ALLOCATION', ?, datetime('now'))`
           ).bind(led.id, batch.itemId, id, bal.storeId, bal.storageLocationId, allocQty, led.balanceAfter, batch.unitCost || 0, batch.batchNumber || id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse({ success: true, allocated: true, remainingQuantity: batch.remainingQuantity, balance: enrichBalance(bal) });
@@ -2368,7 +2420,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }
             return jsonResponse(list.map(enrichBalance));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       let list = fallbackState.balances;
       if (barcode) {
@@ -2395,7 +2447,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           if (res.results && res.results.length > 0) {
             return jsonResponse(res.results.map(enrichBalance));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       let list = fallbackState.balances;
       if (itemId) list = list.filter(b => b.itemId === itemId);
@@ -2419,7 +2471,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           if (res.results && res.results.length > 0) {
             return jsonResponse(res.results.map(enrichLedgerEntry));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       let list = fallbackState.ledger;
       if (itemId) list = list.filter(l => l.itemId === itemId || l.itemId === itemId.replace(/^item-/, ""));
@@ -2451,7 +2503,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }
             return jsonResponse(list.map(enrichReceipt));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       let list = fallbackState.receipts;
       if (search) {
@@ -2465,7 +2517,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/receipts" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const receiptId = uid("grn");
       const grnNumber = `GRN-${Date.now().toString().slice(-6)}`;
       const status = body.submit ? "PENDING_INSPECTION" : "DRAFT";
@@ -2526,28 +2579,29 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
               l.id, l.grnId, l.itemId, l.quantityReceived, l.unitPrice, l.batchNumber || null, l.expiryDate || null, l.fundingSourceId || null, l.remarks || null
             ).run();
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichReceipt(newReceipt), 201);
     }
 
     if (path.startsWith("/receipts/") && path.endsWith("/submit") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const receipt = await getOrFetchReceipt(id, env);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       receipt.status = "PENDING_INSPECTION";
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE GoodsReceivingNote SET status = 'PENDING_INSPECTION', updatedAt = datetime('now') WHERE id = ?").bind(receipt.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(enrichReceipt(receipt));
     }
 
     if (path.startsWith("/receipts/lines/") && path.endsWith("/inspect") && method === "POST") {
-      const lineId = path.split("/")[3];
-      const body = await request.json<any>();
+      const lineId = getPathSegment(path, 2);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       let foundReceipt: any = null;
       let foundLine: any = null;
       for (const r of fallbackState.receipts) {
@@ -2570,7 +2624,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             foundReceipt = await getOrFetchReceipt(dbLine.grnId, env);
             foundLine = (foundReceipt?.lines || []).find((line: any) => line.id === lineId) || dbLine;
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       if (!foundLine) return jsonResponse({ message: "Receipt line not found" }, 404);
 
@@ -2606,10 +2660,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
           ).bind(foundLine.inspection.id, lineId, foundLine.quantityVerified, accepted, rejected, qualityStatus, outcome, foundLine.qualityNotes).run();
 
-          await env.DB.prepare(
-            `UPDATE GoodsReceivingLine SET quantityAccepted = ?, quantityRejected = ?, qualityStatus = ? WHERE id = ?`
-          ).bind(accepted, rejected, qualityStatus, lineId).run();
-        } catch (e) {}
+          // Removed invalid UPDATE to GoodsReceivingLine
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       // Create or update pending storage batch if accepted > 0
@@ -2641,7 +2693,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
               `INSERT OR REPLACE INTO StockBatch (id, itemId, grnLineId, batchNumber, expiryDate, unitCost, totalAcceptedQuantity, remainingQuantity, status, createdAt, updatedAt)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING_STORAGE', datetime('now'), datetime('now'))`
             ).bind(batch.id, batch.itemId, batch.grnLineId, batch.batchNumber, batch.expiryDate || "", batch.unitCost, accepted, accepted).run();
-          } catch (e) {}
+          } catch (e) { console.error("[D1 Error]", e); }
         }
       }
 
@@ -2658,7 +2710,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           try {
             await env.DB.prepare("UPDATE GoodsReceivingNote SET status = ?, updatedAt = datetime('now') WHERE id = ?")
               .bind(foundReceipt.status, foundReceipt.id).run();
-          } catch (e) {}
+          } catch (e) { console.error("[D1 Error]", e); }
         }
       }
 
@@ -2666,7 +2718,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/receipts/") && method === "GET") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const receipt = await getOrFetchReceipt(id, env);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       return jsonResponse(enrichReceipt(receipt));
@@ -2689,13 +2741,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }));
             return jsonResponse(list.map(enrichIssue));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.issues.map(enrichIssue));
     }
 
     if (path === "/issues" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const issueId = uid("siv");
       const sivNumber = `SIV-${Date.now().toString().slice(-6)}`;
       const newIssue = {
@@ -2735,14 +2788,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
                VALUES (?, ?, ?, ?, 0, 0, ?)`
             ).bind(l.id, l.issueId, l.itemId, l.quantityRequested, l.unitPrice || 0).run();
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichIssue(newIssue), 201);
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/pick-list") && method === "GET") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const rawIssue = await getOrFetchIssue(id, env);
       const issue = rawIssue ? enrichIssue(rawIssue) : null;
       return jsonResponse({
@@ -2752,7 +2805,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/approve") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "APPROVED";
@@ -2766,14 +2819,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             .bind(user?.id || "usr-admin", issue.id).run();
           await env.DB.prepare("UPDATE StockIssueLine SET quantityApproved = quantityRequested WHERE issueId = ?")
             .bind(issue.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/reject") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "REJECTED";
@@ -2782,26 +2835,32 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'REJECTED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
             .bind(user?.id || "usr-admin", issue.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/issue") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "ISSUED";
       for (const line of issue.lines || []) {
         line.quantityIssued = Number(line.quantityApproved ?? line.quantityRequested ?? line.quantity ?? 0);
+        const currentBalance = fallbackState.balances
+          .filter(b => b.itemId === line.itemId)
+          .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
+        const issuedQty = line.quantityIssued || line.quantityRequested || 1;
+        const balanceAfter = Math.max(0, currentBalance - issuedQty);
+        
         const led = {
           id: uid("led"),
           itemId: line.itemId,
           entryType: "ISSUE",
           quantityIn: 0,
-          quantityOut: line.quantityIssued || line.quantityRequested || 1,
-          balanceAfter: 0,
+          quantityOut: issuedQty,
+          balanceAfter: balanceAfter,
           referenceType: "SIV",
           referenceId: issue.sivNumber,
           createdAt: new Date().toISOString()
@@ -2812,9 +2871,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           try {
             await env.DB.prepare(
               `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, referenceType, referenceId, createdAt)
-               VALUES (?, ?, 'ISSUE', 0, ?, 0, 'SIV', ?, datetime('now'))`
-            ).bind(led.id, line.itemId, led.quantityOut, issue.sivNumber).run();
-          } catch (e) {}
+               VALUES (?, ?, 'ISSUE', 0, ?, ?, 'SIV', ?, datetime('now'))`
+            ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, issue.sivNumber).run();
+          } catch (e) { console.error("[D1 Error]", e); }
         }
       }
 
@@ -2822,14 +2881,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'ISSUED', issuedById = ?, updatedAt = datetime('now') WHERE id = ?")
             .bind(user?.id || "usr-admin", issue.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichIssue(issue));
     }
 
     if (path.startsWith("/issues/") && path.endsWith("/receive") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "COMPLETED";
@@ -2838,7 +2897,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'COMPLETED', updatedAt = datetime('now') WHERE id = ?")
             .bind(issue.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichIssue(issue));
@@ -2857,13 +2916,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }));
             return jsonResponse(list.map(enrichReturn));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.returns.map(enrichReturn));
     }
 
     if (path === "/returns" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const ret = {
         id: uid("ret"),
         returnNumber: `RET-${Date.now().toString().slice(-6)}`,
@@ -2881,15 +2941,16 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             `INSERT INTO ItemReturn (id, returnNumber, departmentId, returnedById, reason, status, createdAt, updatedAt)
              VALUES (?, ?, ?, ?, ?, 'PENDING_INSPECTION', datetime('now'), datetime('now'))`
           ).bind(ret.id, ret.returnNumber, ret.departmentId, user?.id || "usr-admin", ret.reason).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichReturn(ret), 201);
     }
 
     if (path.startsWith("/returns/") && path.endsWith("/inspect") && method === "POST") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const ret = await getOrFetchReturn(id, env);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
       ret.status = body.outcome === "APPROVED" ? "ACCEPTED" : (body.outcome === "REJECTED" ? "REJECTED" : "PARTIALLY_ACCEPTED");
@@ -2898,14 +2959,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE ItemReturn SET status = ?, updatedAt = datetime('now') WHERE id = ?")
             .bind(ret.status, ret.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichReturn(ret));
     }
 
     if (path.startsWith("/returns/") && method === "GET") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const ret = await getOrFetchReturn(id, env);
       if (!ret) return jsonResponse({ message: "Return not found" }, 404);
       return jsonResponse(enrichReturn(ret));
@@ -2944,7 +3005,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             pendingAdjustments: pendingAdjustments.length > 0 ? pendingAdjustments : fallbackState.adjustments.filter(a => a.status === "PENDING_APPROVAL").map(enrichAdjustment),
             pendingDisposals: pendingDisposals.length > 0 ? pendingDisposals : fallbackState.disposals.filter(d => d.status === "PENDING_APPROVAL").map(enrichDisposal)
           });
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse({
         pendingIssues: fallbackState.issues.filter(i => i.status === "PENDING_APPROVAL").map(enrichIssue),
@@ -2979,7 +3040,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             pendingReturns: pendingReturns.length > 0 ? pendingReturns : (fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION") || []).map(enrichReturn),
             recentInspections: []
           });
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       const pendingGrns = (fallbackState.receipts.filter(r => r.status === "PENDING_INSPECTION") || []).map(enrichReceipt);
       const pendingReturns = (fallbackState.returns.filter(r => r.status === "PENDING_INSPECTION") || []).map(enrichReturn);
@@ -2999,13 +3060,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           if (res.results && res.results.length > 0) {
             return jsonResponse(res.results);
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.counts);
     }
 
     if (path === "/physical-counts" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const count = {
         id: uid("cnt"),
         countNumber: `CNT-${Date.now().toString().slice(-6)}`,
@@ -3025,15 +3087,16 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             `INSERT INTO PhysicalCount (id, countNumber, storeId, status, conductedById, createdAt, updatedAt)
              VALUES (?, ?, ?, 'OPEN', ?, datetime('now'), datetime('now'))`
           ).bind(count.id, count.countNumber, count.locationId || "store-main", count.createdById).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(count, 201);
     }
 
     if (path.startsWith("/physical-counts/") && path.endsWith("/submit") && method === "POST") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>();
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const count = fallbackState.counts.find(c => c.id === id);
       if (!count) return jsonResponse({ message: "Physical count not found" }, 404);
       count.status = "COMPLETED";
@@ -3044,7 +3107,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE PhysicalCount SET status = 'COMPLETED', updatedAt = datetime('now') WHERE id = ?")
             .bind(id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(count);
@@ -3061,13 +3124,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
               quantity: Math.abs(Number(a.quantityDelta || 0))
             })).map(enrichAdjustment));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.adjustments.map(enrichAdjustment));
     }
 
     if (path === "/adjustments" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const adj = {
         id: uid("adj"),
         adjustmentNumber: `ADJ-${Date.now().toString().slice(-6)}`,
@@ -3090,14 +3154,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             `INSERT INTO StockAdjustment (id, adjustmentNumber, itemId, batchId, quantityDelta, reason, createdAt)
              VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
           ).bind(adj.id, adj.adjustmentNumber, adj.itemId, adj.batchId, adj.quantityDelta, adj.reason).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichAdjustment(adj), 201);
     }
 
     if (path.startsWith("/adjustments/") && path.endsWith("/approve") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const adj = await getOrFetchAdjustment(id, env);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "APPROVED";
@@ -3106,14 +3170,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockAdjustment SET approvedById = ? WHERE id = ?")
             .bind(user?.id || "usr-admin", adj.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichAdjustment(adj));
     }
 
     if (path.startsWith("/adjustments/") && path.endsWith("/reject") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const adj = await getOrFetchAdjustment(id, env);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "REJECTED";
@@ -3122,7 +3186,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockAdjustment SET approvedById = 'REJECTED' WHERE id = ?")
             .bind(adj.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichAdjustment(adj));
@@ -3135,13 +3199,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           if (res.results && res.results.length > 0) {
             return jsonResponse(res.results.map(enrichDisposal));
           }
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
       return jsonResponse(fallbackState.disposals.map(enrichDisposal));
     }
 
     if (path === "/disposals" && method === "POST") {
-      const body = await request.json<any>();
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const { id: rawDispId, ...dispData } = body;
       const disp = {
         ...dispData,
@@ -3158,15 +3223,15 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           await env.DB.prepare(
             `INSERT INTO StockDisposal (id, disposalNumber, itemId, batchId, quantity, reasonId, status, createdAt, updatedAt)
              VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', datetime('now'), datetime('now'))`
-          ).bind(disp.id, disp.disposalNumber, disp.itemId || (disp.lines?.[0]?.itemId || "item-screw"), disp.batchId || null, Number(disp.quantity || disp.lines?.[0]?.quantity || 1), disp.disposalReasonId || "disp-01").run();
-        } catch (e) {}
+          ).bind(disp.id, disp.disposalNumber, disp.itemId || (disp.lines?.[0]?.itemId || "item-screw"), disp.batchId || null, Number(disp.quantity || disp.lines?.[0]?.quantity || 1), disp.reasonId || "disp-01").run();
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichDisposal(disp), 201);
     }
 
     if (path.startsWith("/disposals/") && path.endsWith("/approve") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "APPROVED";
@@ -3175,15 +3240,16 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'APPROVED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
             .bind(user?.id || "usr-admin", disp.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichDisposal(disp));
     }
 
     if (path.startsWith("/disposals/") && path.endsWith("/reject") && method === "POST") {
-      const id = path.split("/")[2];
-      const body = await request.json<any>().catch(() => ({}));
+      const id = getPathSegment(path, 1);
+      let body: any;
+      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
       const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "REJECTED";
@@ -3193,14 +3259,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'REJECTED', approvedById = ?, remarks = ?, updatedAt = datetime('now') WHERE id = ?")
             .bind(user?.id || "usr-admin", disp.rejectionNotes, disp.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichDisposal(disp));
     }
 
     if (path.startsWith("/disposals/") && path.endsWith("/dispose") && method === "POST") {
-      const id = path.split("/")[2];
+      const id = getPathSegment(path, 1);
       const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "DISPOSED";
@@ -3209,7 +3275,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'DISPOSED', updatedAt = datetime('now') WHERE id = ?")
             .bind(disp.id).run();
-        } catch (e) {}
+        } catch (e) { console.error("[D1 Error]", e); }
       }
 
       return jsonResponse(enrichDisposal(disp));
@@ -3425,7 +3491,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         return new Response(csvRows.join("\n"), {
           status: 200,
           headers: {
-            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Type": "text/csv; charset=utf-8",
             "Content-Disposition": `attachment; filename="${type}-report.xlsx"`,
             "Access-Control-Allow-Origin": "*"
           }
@@ -3472,6 +3538,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     return jsonResponse({ message: `API endpoint not found: ${method} ${path}` }, 404);
 
   } catch (err: any) {
+    console.error("[Unhandled API Error]", err);
     return jsonResponse({ message: err?.message || "Internal server error" }, 500);
   }
 }

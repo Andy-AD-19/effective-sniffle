@@ -299,3 +299,17 @@ CREATE TABLE IF NOT EXISTS "StockAdjustment" (
     "approvedById" TEXT,
     "createdAt" TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS "Inspection" (
+    "id" TEXT PRIMARY KEY,
+    "grnLineId" TEXT NOT NULL,
+    "quantityVerified" REAL NOT NULL DEFAULT 0,
+    "quantityAccepted" REAL NOT NULL DEFAULT 0,
+    "quantityRejected" REAL NOT NULL DEFAULT 0,
+    "qualityStatus" TEXT NOT NULL DEFAULT 'PENDING',
+    "outcome" TEXT NOT NULL DEFAULT 'PENDING',
+    "notes" TEXT,
+    "rejectionReason" TEXT,
+    "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
+    "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
+);
