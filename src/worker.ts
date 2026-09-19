@@ -1230,6 +1230,18 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
   const user = await parseAuthUser(request, jwtSecret);
 
   try {
+    // [Bugfix]: Monkey-patch D1 bind to automatically convert undefined to null
+    // This prevents "Type 'undefined' not supported" crashes that cause silent D1 insert failures
+    if (env.DB && !(env.DB as any)._patched) {
+      const originalPrepare = env.DB.prepare.bind(env.DB);
+      env.DB.prepare = (query) => {
+        const stmt = originalPrepare(query);
+        const originalBind = stmt.bind.bind(stmt);
+        stmt.bind = (...args) => originalBind(...args.map((a) => a === undefined ? null : a));
+        return stmt;
+      };
+      (env.DB as any)._patched = true;
+    }
     // If D1 database is connected, synchronize master item catalog into memory cache for instant lookups
     if (env.DB) {
       try {
