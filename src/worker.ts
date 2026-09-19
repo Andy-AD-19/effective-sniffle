@@ -899,6 +899,7 @@ function enrichIssue(issue: any): any {
       ...line,
       quantity: qty,
       quantityRequested: Number(line.quantityRequested ?? qty),
+      issuedQuantity: Number(line.quantityIssued ?? 0),
       item
     };
   });
@@ -909,6 +910,13 @@ function enrichIssue(issue: any): any {
     department: dept || (issue.departmentId ? { id: issue.departmentId, name: issue.departmentId } : null),
     departmentName: dept?.name || issue.departmentName || issue.departmentId || "General Department",
     requestedBy: user || { id: issue.createdById || "usr-admin", fullName: user?.fullName || issue.recipientName || "Store Requester" },
+    voucher: (issue.status === "ISSUED" || issue.status === "PARTIALLY_ISSUED" || issue.status === "CLOSED") ? {
+      voucherNumber: issue.sivNumber || issue.id,
+      issuedAt: issue.updatedAt || issue.createdAt,
+      createdAt: issue.createdAt,
+      issuedBy: fallbackState.users.find(u => u.id === issue.issuedById) || { fullName: "Storekeeper" },
+      ledgerEntries: fallbackState.ledger.filter(l => l.referenceId === issue.sivNumber || l.referenceId === issue.id)
+    } : null,
     lines
   };
 }
@@ -2895,6 +2903,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             .bind(user?.id || "usr-admin", issue.id).run();
         } catch (e) { console.error("[D1 Error]", e); }
       }
+
+      issue.issuedById = user?.id || "usr-admin";
+      issue.updatedAt = new Date().toISOString();
 
       return jsonResponse(enrichIssue(issue));
     }
