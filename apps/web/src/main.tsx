@@ -7989,7 +7989,7 @@ function Issuance({ token, user }: { token: string; user: User }) {
 											/>
 										</button>
 									)}
-								{canIssue && row.status === 'PENDING_ISSUE' && (
+								{canIssue && (row.status === 'PENDING_ISSUE' || row.status === 'APPROVED') && (
 									<button
 										disabled={loadingAction === `${row.id}-issue`}
 										className='rounded bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-60'

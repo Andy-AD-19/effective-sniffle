@@ -2818,8 +2818,48 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const id = getPathSegment(path, 1);
       const rawIssue = await getOrFetchIssue(id, env);
       const issue = rawIssue ? enrichIssue(rawIssue) : null;
+      
+      const picks: any[] = [];
+      for (const line of (issue?.lines || [])) {
+         let allocations: any[] = [];
+         if (env.DB) {
+            try {
+               const balances = await env.DB.prepare(`
+                 SELECT b.*, s.name as storeName, bt.batchNumber as batchNumber
+                 FROM StockLocationBalance b 
+                 LEFT JOIN StoreLocation s ON b.storeId = s.id 
+                 LEFT JOIN StockBatch bt ON b.batchId = bt.id
+                 WHERE b.itemId = ? AND b.quantityOnHand > 0
+               `).bind(line.itemId).all<any>();
+               allocations = (balances.results || []).map((b: any) => ({
+                  batchNumber: b.batchNumber || b.batchId || "N/A",
+                  storeName: b.storeName || "Main Store",
+                  shelfCode: b.storageLocationId || "-",
+                  binCode: "-",
+                  availableQuantity: b.quantityOnHand,
+                  quantityToIssue: Math.min(b.quantityOnHand, line.quantityRequested || line.quantity)
+               }));
+            } catch (e) { console.error("[D1 Error]", e); }
+         } else {
+            allocations = fallbackState.balances.filter(b => b.itemId === line.itemId && Number(b.quantityOnHand) > 0).map(b => ({
+               batchNumber: b.batchId || "N/A",
+               storeName: "Main Store",
+               shelfCode: b.storageLocationId || "-",
+               binCode: "-",
+               availableQuantity: b.quantityOnHand,
+               quantityToIssue: Math.min(Number(b.quantityOnHand), line.quantityRequested || line.quantity)
+            }));
+         }
+         picks.push({
+            item: line.item,
+            quantityRequested: line.quantityRequested || line.quantity,
+            allocations
+         });
+      }
+
       return jsonResponse({
         issue,
+        picks,
         lines: issue?.lines || []
       });
     }
@@ -2868,10 +2908,21 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       issue.status = "ISSUED";
       for (const line of issue.lines || []) {
         line.quantityIssued = Number(line.quantityApproved ?? line.quantityRequested ?? line.quantity ?? 0);
-        const currentBalance = fallbackState.balances
-          .filter(b => b.itemId === line.itemId)
-          .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
         const issuedQty = line.quantityIssued || line.quantityRequested || 1;
+
+        let currentBalance = 0;
+        if (env.DB) {
+           try {
+              const res = await env.DB.prepare("SELECT SUM(quantityOnHand) as total FROM StockLocationBalance WHERE itemId = ?").bind(line.itemId).first<any>();
+              currentBalance = Number(res?.total || 0);
+           } catch (e) { console.error("[D1 Error]", e); }
+        }
+        if (!env.DB || currentBalance === 0) {
+           currentBalance = fallbackState.balances
+             .filter(b => b.itemId === line.itemId)
+             .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
+        }
+
         const balanceAfter = Math.max(0, currentBalance - issuedQty);
         
         const led = {
@@ -2887,12 +2938,44 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         };
         fallbackState.ledger.unshift(led);
 
+        // Deduct from fallback state balances
+        let remainingDeduct = issuedQty;
+        for (const fb of fallbackState.balances) {
+           if (fb.itemId === line.itemId && Number(fb.quantityOnHand) > 0) {
+              if (remainingDeduct <= 0) break;
+              const deduct = Math.min(remainingDeduct, Number(fb.quantityOnHand));
+              fb.quantityOnHand = Number(fb.quantityOnHand) - deduct;
+              remainingDeduct -= deduct;
+           }
+        }
+
         if (env.DB) {
           try {
             await env.DB.prepare(
               `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, referenceType, referenceId, createdAt)
                VALUES (?, ?, 'ISSUE', 0, ?, ?, 'SIV', ?, datetime('now'))`
             ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, issue.sivNumber).run();
+
+            // Deduct from StockLocationBalance
+            let remLoc = issuedQty;
+            const balances = await env.DB.prepare("SELECT id, quantityOnHand FROM StockLocationBalance WHERE itemId = ? AND quantityOnHand > 0 ORDER BY createdAt ASC").bind(line.itemId).all<any>();
+            for (const b of (balances.results || [])) {
+               if (remLoc <= 0) break;
+               const deduct = Math.min(remLoc, Number(b.quantityOnHand));
+               await env.DB.prepare("UPDATE StockLocationBalance SET quantityOnHand = quantityOnHand - ?, updatedAt = datetime('now') WHERE id = ?").bind(deduct, b.id).run();
+               remLoc -= deduct;
+            }
+
+            // Deduct from StockBatch
+            let remBatch = issuedQty;
+            const batches = await env.DB.prepare("SELECT id, remainingQuantity FROM StockBatch WHERE itemId = ? AND remainingQuantity > 0 ORDER BY expiryDate ASC, createdAt ASC").bind(line.itemId).all<any>();
+            for (const bt of (batches.results || [])) {
+               if (remBatch <= 0) break;
+               const deduct = Math.min(remBatch, Number(bt.remainingQuantity));
+               await env.DB.prepare("UPDATE StockBatch SET remainingQuantity = remainingQuantity - ?, updatedAt = datetime('now') WHERE id = ?").bind(deduct, bt.id).run();
+               remBatch -= deduct;
+            }
+
           } catch (e) { console.error("[D1 Error]", e); }
         }
       }
