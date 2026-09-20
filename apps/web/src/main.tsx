@@ -6904,7 +6904,7 @@ function Storage({ token }: { token: string }) {
 
 	const enrichedBatches = batches.map((b) => {
 		const isGeneric = !b.item?.description || b.item.description.startsWith('item-') || b.item.description === `Item ${b.itemId}` || b.item.description === 'Institutional Item'
-		const resolved = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code))
+		const resolved = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code) || (b.item?.description && i.code === b.item.description))
 		const desc = (!isGeneric ? b.item?.description : '') || resolved?.description || b.itemDescription || b.item?.description || b.itemId
 		return {
 			...b,
@@ -6919,7 +6919,7 @@ function Storage({ token }: { token: string }) {
 
 	const enrichedBalances = balances.map((b) => {
 		const isGeneric = !b.item?.description || b.item.description.startsWith('item-') || b.item.description === `Item ${b.itemId}` || b.item.description === 'Institutional Item'
-		const resolvedItem = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code))
+		const resolvedItem = items.find((i) => i.id === b.itemId || i.code === b.itemId || i.code?.toLowerCase() === String(b.itemId).toLowerCase() || (b.item?.code && i.code === b.item.code) || (b.item?.description && i.code === b.item.description))
 		const desc = (!isGeneric ? b.item?.description : '') || resolvedItem?.description || b.itemDescription || b.item?.description || b.itemId || 'Item'
 		const resolvedBatch = b.batch?.batchNumber ? b.batch : batches.find((x) => x.id === b.batchId)
 		const resolvedLoc = b.storageLocation?.shelfNumber ? b.storageLocation : locations.find((l) => l.id === b.storageLocationId)
@@ -7245,7 +7245,7 @@ function Storage({ token }: { token: string }) {
 						</option>
 						{pendingBatches.map((batch) => (
 							<option key={batch.id} value={batch.id}>
-								{batch.item?.description} / {batch.batchNumber ?? 'No batch'} /
+								{batch.item?.code ?? batch.itemId} - {batch.item?.description} / {batch.batchNumber ?? 'No batch'} /
 								remaining {String(batch.remainingQuantity)}
 							</option>
 						))}
@@ -7311,7 +7311,7 @@ function Storage({ token }: { token: string }) {
 						<div>
 							<span className='text-muted-foreground'>Selected item</span>
 							<br />
-							{selectedBatch.item?.description}
+							{selectedBatch.item?.code ?? selectedBatch.itemId} - {selectedBatch.item?.description}
 						</div>
 						<div>
 							<span className='text-muted-foreground'>Batch</span>
@@ -7724,10 +7724,10 @@ function Issuance({ token, user }: { token: string; user: User }) {
 			(row: any) =>
 				row.name.toLowerCase() === form.departmentName.trim().toLowerCase()
 		)
-		const departmentId = department?.id
-		if (!itemId || !departmentId) {
-			setMessage('Select a valid requesting department.')
-			notify('warning', 'Select a valid requesting department.')
+		let departmentId = department?.id
+		if (!itemId) {
+			setMessage('Select a valid item.')
+			notify('warning', 'Select a valid item.')
 			return
 		}
 		if (!form.recipientName?.trim()) {
@@ -7737,6 +7737,20 @@ function Issuance({ token, user }: { token: string; user: User }) {
 		}
 		setLoadingAction('create')
 		try {
+			if (!departmentId && form.departmentName.trim()) {
+				// Automatically create missing department
+				const newDept = await request<any>('/admin/master-data/department', token, {
+					method: 'POST',
+					body: JSON.stringify({ name: form.departmentName.trim() }),
+				})
+				departmentId = newDept.id
+				await load() // refresh master data
+			}
+			if (!departmentId) {
+				setMessage('Requesting department is required.')
+				setLoadingAction('')
+				return
+			}
 			await request('/issues', token, {
 				method: 'POST',
 				body: JSON.stringify({

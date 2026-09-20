@@ -186,10 +186,10 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
         <td class="en">${seqFrom}</td>
         <td class="en">${seqTo}</td>
         <td class="en">${qty}</td>
-        <td class="en">${unitPriceNum > 0 ? unitBirr : ""}</td>
-        <td class="en">${unitPriceNum > 0 ? String(unitCents).padStart(2, "0") : ""}</td>
-        <td class="en">${lineTotal > 0 ? totalBirr : ""}</td>
-        <td class="en">${lineTotal > 0 ? String(totalCents).padStart(2, "0") : ""}</td>
+        <td class="en">${unitBirr}</td>
+        <td class="en">${String(unitCents).padStart(2, "0")}</td>
+        <td class="en">${totalBirr}</td>
+        <td class="en">${String(totalCents).padStart(2, "0")}</td>
         <td class="remarks-cell ${fontClass(remarks)}">${remarks}</td>
       </tr>
     `);

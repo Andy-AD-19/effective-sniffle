@@ -12,7 +12,7 @@ export function buildBinCardRows(item: any, movements: any[]) {
     department: "N/A",
     batchNumber: "N/A",
     expiryDate: null,
-    unitCost: null,
+    unitCost: 0,
     totalPrice: 0,
     receivedQuantity: 0,
     issuedQuantity: 0,
@@ -29,8 +29,8 @@ export function buildBinCardRows(item: any, movements: any[]) {
     const isIssue = quantity < 0;
     const supplier = movement.grnLine?.grn?.supplierDonor?.name ?? movement.grnLine?.grn?.sourceType;
     const department = movement.voucher?.issueRequest?.department?.name;
-    const unitCost = movement.unitCost == null ? null : Number(movement.unitCost);
-    const totalPrice = unitCost == null ? null : Math.abs(quantity) * unitCost;
+    const unitCost = movement.unitCost != null ? Number(movement.unitCost) : 0;
+    const totalPrice = Math.abs(quantity) * unitCost;
     rows.push({
       id: movement.id,
       date: movement.postedAt,

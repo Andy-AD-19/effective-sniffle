@@ -243,25 +243,25 @@ export class DomainController {
   }
 
   @Get("admin/master-data/:model")
-  @RequirePermissions(permissions.USER_MANAGE)
+  @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
   masterList(@Param("model") model: any) {
     return this.master.list(model);
   }
 
   @Post("admin/master-data/:model")
-  @RequirePermissions(permissions.USER_MANAGE)
+  @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
   masterCreate(@CurrentUser() user: any, @Param("model") model: any, @Body() dto: MasterDto) {
     return this.master.create(user.sub, model, dto);
   }
 
   @Patch("admin/master-data/:model/:id")
-  @RequirePermissions(permissions.USER_MANAGE)
+  @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
   masterUpdate(@CurrentUser() user: any, @Param("model") model: any, @Param("id") id: string, @Body() dto: Partial<MasterDto & { active: boolean }>) {
     return this.master.update(user.sub, model, id, dto);
   }
 
   @Delete("admin/master-data/:model")
-  @RequirePermissions(permissions.USER_MANAGE)
+  @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
   masterDeleteMany(@CurrentUser() user: any, @Param("model") model: any, @Body() dto: { ids: string[] }) {
     return this.master.deleteMany(user.sub, model, dto.ids ?? []);
   }
