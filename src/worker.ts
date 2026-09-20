@@ -894,12 +894,29 @@ function enrichIssue(issue: any): any {
   const user = fallbackState.users.find(u => u.id === issue.createdById) || null;
   const lines = (issue.lines || []).map((line: any) => {
     const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
+    if (!item.modelNumber && line.itemModelNumber) item.modelNumber = line.itemModelNumber;
+    if (!item.serialNumber && line.itemSerialNumber) item.serialNumber = line.itemSerialNumber;
     const qty = Number(line.quantity ?? line.quantityRequested ?? line.quantityApproved ?? 0);
+    const qtyReq = Number(line.quantityRequested ?? qty);
+    let qtyIss = Number(line.quantityIssued ?? line.issuedQuantity ?? 0);
+    if (qtyIss === 0 && (issue.status === "ISSUED" || issue.status === "PARTIALLY_ISSUED" || issue.status === "CLOSED")) {
+      qtyIss = qtyReq;
+    }
+    
+    let price = Number(line.unitPrice || 0);
+    if (price === 0 && item) {
+       // Retroactive fix: if line has no price, infer from batch or ledger
+       if (item.stockBatches && item.stockBatches.length > 0) {
+          price = Number(item.stockBatches[0].unitCost || 0);
+       }
+    }
+
     return {
       ...line,
       quantity: qty,
-      quantityRequested: Number(line.quantityRequested ?? qty),
-      issuedQuantity: Number(line.quantityIssued ?? 0),
+      quantityRequested: qtyReq,
+      issuedQuantity: qtyIss,
+      unitPrice: price,
       item
     };
   });
@@ -1083,7 +1100,7 @@ async function getOrFetchIssue(id: string, env: Env): Promise<any> {
       ).bind(id, id).first<any>();
       if (dbVoucher) {
         const linesQuery = await env.DB.prepare(`
-          SELECT l.*, i.code AS itemCode, i.description AS itemDescription
+          SELECT l.*, i.code AS itemCode, i.description AS itemDescription, i.modelNumber AS itemModelNumber, i.serialNumber AS itemSerialNumber
           FROM StockIssueLine l
           LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
           WHERE l.issueId = ?
@@ -2966,11 +2983,15 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           try {
             // First fetch the actual price if not set
             if (!linePrice) {
-               const itemRec = await env.DB.prepare("SELECT unitPrice, unitCost FROM Item WHERE id = ?").bind(line.itemId).first<any>();
-               linePrice = Number(itemRec?.unitPrice || itemRec?.unitCost || 0);
+               const batchRec = await env.DB.prepare("SELECT unitCost FROM StockBatch WHERE itemId = ? ORDER BY createdAt DESC LIMIT 1").bind(line.itemId).first<any>();
+               linePrice = Number(batchRec?.unitCost || 0);
                led.unitPrice = linePrice;
                led.unitCost = linePrice;
             }
+
+            // Update in-memory line
+            line.quantityIssued = issuedQty;
+            line.unitPrice = linePrice;
 
             await env.DB.prepare(
               `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
