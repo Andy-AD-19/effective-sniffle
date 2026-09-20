@@ -915,7 +915,7 @@ function enrichIssue(issue: any): any {
       issuedAt: issue.updatedAt || issue.createdAt,
       createdAt: issue.createdAt,
       issuedBy: fallbackState.users.find(u => u.id === issue.issuedById) || { fullName: "Storekeeper" },
-      ledgerEntries: fallbackState.ledger.filter(l => l.referenceId === issue.sivNumber || l.referenceId === issue.id)
+      ledgerEntries: issue.ledgerEntries || fallbackState.ledger.filter(l => l.referenceId === issue.sivNumber || l.referenceId === issue.id)
     } : null,
     lines
   };
@@ -1098,10 +1098,19 @@ async function getOrFetchIssue(id: string, env: Env): Promise<any> {
           unitPrice: Number(l.unitPrice || 0)
         }));
 
+        let ledgerEntries = [];
+        try {
+          const ledgerQuery = await env.DB.prepare(
+            "SELECT * FROM StockLedgerEntry WHERE referenceId = ? OR referenceId = ?"
+          ).bind(dbVoucher.sivNumber || dbVoucher.id, dbVoucher.id).all<any>();
+          ledgerEntries = ledgerQuery.results || [];
+        } catch (e) { console.error("[D1 Error fetching ledger]", e); }
+
         const fetched = {
           ...dbVoucher,
           requestNumber: dbVoucher.sivNumber,
-          lines
+          lines,
+          ledgerEntries
         };
 
         const existingIdx = fallbackState.issues.findIndex(i => i.id === dbVoucher.id);
@@ -2925,6 +2934,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
         const balanceAfter = Math.max(0, currentBalance - issuedQty);
         
+        let linePrice = Number(line.unitPrice || line.item?.unitPrice || line.item?.unitCost || 0);
+
         const led = {
           id: uid("led"),
           itemId: line.itemId,
@@ -2932,6 +2943,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           quantityIn: 0,
           quantityOut: issuedQty,
           balanceAfter: balanceAfter,
+          unitCost: linePrice,
+          unitPrice: linePrice,
           referenceType: "SIV",
           referenceId: issue.sivNumber,
           createdAt: new Date().toISOString()
@@ -2951,10 +2964,22 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
         if (env.DB) {
           try {
+            // First fetch the actual price if not set
+            if (!linePrice) {
+               const itemRec = await env.DB.prepare("SELECT unitPrice, unitCost FROM Item WHERE id = ?").bind(line.itemId).first<any>();
+               linePrice = Number(itemRec?.unitPrice || itemRec?.unitCost || 0);
+               led.unitPrice = linePrice;
+               led.unitCost = linePrice;
+            }
+
             await env.DB.prepare(
-              `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, referenceType, referenceId, createdAt)
-               VALUES (?, ?, 'ISSUE', 0, ?, ?, 'SIV', ?, datetime('now'))`
-            ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, issue.sivNumber).run();
+              `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
+               VALUES (?, ?, 'ISSUE', 0, ?, ?, ?, 'SIV', ?, datetime('now'))`
+            ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, linePrice, issue.sivNumber).run();
+
+            await env.DB.prepare(
+              "UPDATE StockIssueLine SET quantityIssued = ?, unitPrice = ? WHERE id = ?"
+            ).bind(issuedQty, linePrice, line.id).run();
 
             // Deduct from StockLocationBalance
             let remLoc = issuedQty;
