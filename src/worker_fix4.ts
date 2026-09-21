@@ -595,18 +595,6 @@ function uid(prefix = "id"): string {
   return `${prefix}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-async function recordAudit(env: any, fallbackState: any, user: any, action: string, entityType: string, entityId: string, details: string = "") {
-  const log = { id: uid("aud"), actorId: user?.id || "usr-admin", action, entityType, entityId, details, createdAt: new Date().toISOString() };
-  fallbackState.auditLogs.unshift(log);
-  if (env.DB) {
-    try {
-      await env.DB.prepare(`INSERT INTO AuditLog (id, action, entity, entityId, userId, details, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(log.id, log.action, log.entityType, log.entityId, log.actorId, log.details, log.createdAt).run();
-    } catch(e) { console.error("[D1 Audit Error]", e); }
-  }
-}
-
-
 // Master Data mapping helper
 function getMasterDataList(model: string): any[] | null {
   switch (model) {
@@ -906,29 +894,11 @@ function enrichIssue(issue: any): any {
   const user = fallbackState.users.find(u => u.id === issue.createdById) || null;
   const lines = (issue.lines || []).map((line: any) => {
     const item = resolveItemFallback(line.itemId, line.item, line.itemDescription, line.itemCode);
-    if (!item.modelNumber && line.itemModelNumber) item.modelNumber = line.itemModelNumber;
-    if (!item.serialNumber && line.itemSerialNumber) item.serialNumber = line.itemSerialNumber;
     const qty = Number(line.quantity ?? line.quantityRequested ?? line.quantityApproved ?? 0);
-    const qtyReq = Number(line.quantityRequested ?? qty);
-    let qtyIss = Number(line.quantityIssued ?? line.issuedQuantity ?? 0);
-    if (qtyIss === 0 && (issue.status === "ISSUED" || issue.status === "PARTIALLY_ISSUED" || issue.status === "CLOSED")) {
-      qtyIss = qtyReq;
-    }
-    
-    let price = Number(line.unitPrice || 0);
-    if (price === 0 && item) {
-       // Retroactive fix: if line has no price, infer from batch or ledger
-       if (item.stockBatches && item.stockBatches.length > 0) {
-          price = Number(item.stockBatches[0].unitCost || 0);
-       }
-    }
-
     return {
       ...line,
       quantity: qty,
-      quantityRequested: qtyReq,
-      issuedQuantity: qtyIss,
-      unitPrice: price,
+      quantityRequested: Number(line.quantityRequested ?? qty),
       item
     };
   });
@@ -939,13 +909,6 @@ function enrichIssue(issue: any): any {
     department: dept || (issue.departmentId ? { id: issue.departmentId, name: issue.departmentId } : null),
     departmentName: dept?.name || issue.departmentName || issue.departmentId || "General Department",
     requestedBy: user || { id: issue.createdById || "usr-admin", fullName: user?.fullName || issue.recipientName || "Store Requester" },
-    voucher: (issue.status === "ISSUED" || issue.status === "PARTIALLY_ISSUED" || issue.status === "CLOSED") ? {
-      voucherNumber: issue.sivNumber || issue.id,
-      issuedAt: issue.updatedAt || issue.createdAt,
-      createdAt: issue.createdAt,
-      issuedBy: fallbackState.users.find(u => u.id === issue.issuedById) || { fullName: "Storekeeper" },
-      ledgerEntries: issue.ledgerEntries || fallbackState.ledger.filter(l => l.referenceId === issue.sivNumber || l.referenceId === issue.id)
-    } : null,
     lines
   };
 }
@@ -1032,20 +995,15 @@ function enrichReturn(ret: any): any {
 function enrichLedgerEntry(entry: any): any {
   if (!entry) return entry;
   const item = resolveItemFallback(entry.itemId, entry.item, entry.itemDescription, entry.itemCode);
-  const batch = entry.batchId ? fallbackState.batches.find(b => b.id === entry.batchId) : null;
   return {
     ...entry,
-    item,
-    batchNumber: entry.batchNumber || batch?.batchNumber || (entry.referenceType === 'ALLOCATION' ? entry.referenceId : "N/A"),
-    unitCost: entry.unitCost ?? entry.unitPrice ?? batch?.unitCost ?? 0,
-    totalPrice: (Number(entry.quantityIn || 0) + Number(entry.quantityOut || 0)) * Number(entry.unitCost ?? entry.unitPrice ?? batch?.unitCost ?? 0),
-    expiryDate: entry.expiryDate || batch?.expiryDate
+    item
   };
 }
 
 async function getOrFetchReceipt(id: string, env: Env): Promise<any> {
   let receipt = fallbackState.receipts.find(r => r.id === id || r.grnNumber === id);
-  if (env.DB) {
+  if (env.DB && (!receipt || !receipt.lines || receipt.lines.length === 0)) {
     try {
       const dbNote = await env.DB.prepare(
         "SELECT * FROM GoodsReceivingNote WHERE id = ? OR grnNumber = ?"
@@ -1110,14 +1068,14 @@ async function getOrFetchReceipt(id: string, env: Env): Promise<any> {
 
 async function getOrFetchIssue(id: string, env: Env): Promise<any> {
   let issue = fallbackState.issues.find(i => i.id === id || i.sivNumber === id);
-  if (env.DB) {
+  if (env.DB && (!issue || !issue.lines || issue.lines.length === 0)) {
     try {
       const dbVoucher = await env.DB.prepare(
         "SELECT * FROM StockIssueVoucher WHERE id = ? OR sivNumber = ?"
       ).bind(id, id).first<any>();
       if (dbVoucher) {
         const linesQuery = await env.DB.prepare(`
-          SELECT l.*, i.code AS itemCode, i.description AS itemDescription, i.modelNumber AS itemModelNumber, i.serialNumber AS itemSerialNumber
+          SELECT l.*, i.code AS itemCode, i.description AS itemDescription
           FROM StockIssueLine l
           LEFT JOIN Item i ON l.itemId = i.id OR l.itemId = i.code
           WHERE l.issueId = ?
@@ -1132,19 +1090,10 @@ async function getOrFetchIssue(id: string, env: Env): Promise<any> {
           unitPrice: Number(l.unitPrice || 0)
         }));
 
-        let ledgerEntries = [];
-        try {
-          const ledgerQuery = await env.DB.prepare(
-            "SELECT * FROM StockLedgerEntry WHERE referenceId = ? OR referenceId = ?"
-          ).bind(dbVoucher.sivNumber || dbVoucher.id, dbVoucher.id).all<any>();
-          ledgerEntries = ledgerQuery.results || [];
-        } catch (e) { console.error("[D1 Error fetching ledger]", e); }
-
         const fetched = {
           ...dbVoucher,
           requestNumber: dbVoucher.sivNumber,
-          lines,
-          ledgerEntries
+          lines
         };
 
         const existingIdx = fallbackState.issues.findIndex(i => i.id === dbVoucher.id);
@@ -1164,7 +1113,7 @@ async function getOrFetchIssue(id: string, env: Env): Promise<any> {
 
 async function getOrFetchReturn(id: string, env: Env): Promise<any> {
   let ret = fallbackState.returns.find(r => r.id === id || r.returnNumber === id);
-  if (env.DB) {
+  if (env.DB && (!ret || !ret.lines || ret.lines.length === 0)) {
     try {
       const dbReturn = await env.DB.prepare(
         "SELECT * FROM ItemReturn WHERE id = ? OR returnNumber = ?"
@@ -1274,30 +1223,6 @@ export default {
   }
 };
 
-
-function formatStatus(s: string) {
-  if (!s) return "Unknown";
-  return s.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
-}
-function getReportStatus(type: string, row: any, item: any, quantity: any) {
-  const explicit = row.status ?? row.stockStatus;
-  if (explicit && !["stock-status", "balance", "valuation", "stock-out", "reorder"].includes(type)) {
-    return formatStatus(explicit);
-  }
-  if (["stock-status", "balance", "valuation", "stock-out", "reorder"].includes(type)) {
-    const qty = Number(quantity ?? row.quantityAvailable ?? row.currentStock ?? row.quantityOnHand ?? 0);
-    const minimum = Number(item?.minimumStock ?? row.minimumStock ?? 0);
-    const reorder = Number(item?.reorderLevel ?? row.reorderLevel ?? minimum);
-    const maximum = Number(item?.maximumStock ?? row.maximumStock ?? Number.POSITIVE_INFINITY);
-    if (qty <= 0) return "Stock Out";
-    if (qty < minimum) return "Below Minimum";
-    if (qty <= reorder) return "Low Stock";
-    if (Number.isFinite(maximum) && qty > maximum) return "Overstock";
-    return "Normal";
-  }
-  return formatStatus(row.type ?? row.sourceType ?? "Recorded");
-}
-
 async function handleApiRequest(request: Request, env: Env, url: URL): Promise<Response> {
   const path = url.pathname.replace(/^\/api/, "") || "/";
   const method = request.method;
@@ -1305,18 +1230,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
   const user = await parseAuthUser(request, jwtSecret);
 
   try {
-    // [Bugfix]: Monkey-patch D1 bind to automatically convert undefined to null
-    // This prevents "Type 'undefined' not supported" crashes that cause silent D1 insert failures
-    if (env.DB && !(env.DB as any)._patched) {
-      const originalPrepare = env.DB.prepare.bind(env.DB);
-      env.DB.prepare = (query) => {
-        const stmt = originalPrepare(query);
-        const originalBind = stmt.bind.bind(stmt);
-        stmt.bind = (...args) => originalBind(...args.map((a) => a === undefined ? null : a));
-        return stmt;
-      };
-      (env.DB as any)._patched = true;
-    }
     // If D1 database is connected, synchronize master item catalog into memory cache for instant lookups
     if (env.DB) {
       try {
@@ -1376,7 +1289,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       // Password verification (Accepts standard seed passwords or stored user password)
-      const validPw = ((env.ENVIRONMENT !== "production" && password === "Password123!") || ((foundUser.password || foundUser.passwordHash) && password === (foundUser.password || foundUser.passwordHash)));
+      const validPw = ((env.ENVIRONMENT !== "production" && password === "Password123!") || (foundUser.password && password === foundUser.password));
       if (!validPw) {
         return jsonResponse({ message: "Invalid email or password." }, 401);
       }
@@ -1540,7 +1453,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           list.push(newItem);
         }
 
-        await recordAudit(env, fallbackState, user, `master.${model}.create`, model, newItem.id);
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.create`,
+          entityType: model,
+          entityId: newItem.id,
+          createdAt: new Date().toISOString()
+        });
 
         return jsonResponse(newItem, 201);
       }
@@ -1592,7 +1512,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           updated = { id: targetId, ...body };
         }
 
-        await recordAudit(env, fallbackState, user, `master.${model}.update`, model, targetId);
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.update`,
+          entityType: model,
+          entityId: targetId,
+          createdAt: new Date().toISOString()
+        });
 
         return jsonResponse(updated);
       }
@@ -1626,7 +1553,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           }
         }
 
-        await recordAudit(env, fallbackState, user, `master.${model}.deleteMany`, model, ids.join(","));
+        fallbackState.auditLogs.unshift({
+          id: uid("aud"),
+          actorId: user?.id || "usr-admin",
+          action: `master.${model}.deleteMany`,
+          entityType: model,
+          entityId: ids.join(","),
+          createdAt: new Date().toISOString()
+        });
 
         return jsonResponse({ deletedCount });
       }
@@ -2615,7 +2549,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             quantityAccepted: undefined,
             quantityRejected: 0,
             unitPrice: Number(l.unitPrice || 0),
-            batchNumber: l.batchNumber || (resolvedItem?.batchTrackingRequired ? "" : `BATCH-${Date.now().toString().slice(-4)}`),
+            batchNumber: l.batchNumber || `BATCH-${Date.now().toString().slice(-4)}`,
             expiryDate: l.expiryDate,
             fundingSourceId: l.fundingSourceId,
             remarks: l.remarks
@@ -2648,7 +2582,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
-      await recordAudit(env, fallbackState, user, "grn.create", "GoodsReceivingNote", newReceipt.id);
       return jsonResponse(enrichReceipt(newReceipt), 201);
     }
 
@@ -2657,7 +2590,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const receipt = await getOrFetchReceipt(id, env);
       if (!receipt) return jsonResponse({ message: "Receipt not found" }, 404);
       receipt.status = "PENDING_INSPECTION";
-      await recordAudit(env, fallbackState, user, "grn.submitInspection", "GoodsReceivingNote", receipt.id);
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE GoodsReceivingNote SET status = 'PENDING_INSPECTION', updatedAt = datetime('now') WHERE id = ?").bind(receipt.id).run();
@@ -2728,7 +2660,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
           ).bind(foundLine.inspection.id, lineId, foundLine.quantityVerified, accepted, rejected, qualityStatus, outcome, foundLine.qualityNotes).run();
 
-          // Removed invalid UPDATE to GoodsReceivingLine
+          await env.DB.prepare(
+            `UPDATE GoodsReceivingLine SET quantityAccepted = ?, quantityRejected = ?, qualityStatus = ? WHERE id = ?`
+          ).bind(accepted, rejected, qualityStatus, lineId).run();
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
@@ -2866,48 +2800,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const id = getPathSegment(path, 1);
       const rawIssue = await getOrFetchIssue(id, env);
       const issue = rawIssue ? enrichIssue(rawIssue) : null;
-      
-      const picks: any[] = [];
-      for (const line of (issue?.lines || [])) {
-         let allocations: any[] = [];
-         if (env.DB) {
-            try {
-               const balances = await env.DB.prepare(`
-                 SELECT b.*, s.name as storeName, bt.batchNumber as batchNumber
-                 FROM StockLocationBalance b 
-                 LEFT JOIN StoreLocation s ON b.storeId = s.id 
-                 LEFT JOIN StockBatch bt ON b.batchId = bt.id
-                 WHERE b.itemId = ? AND b.quantityOnHand > 0
-               `).bind(line.itemId).all<any>();
-               allocations = (balances.results || []).map((b: any) => ({
-                  batchNumber: b.batchNumber || b.batchId || "N/A",
-                  storeName: b.storeName || "Main Store",
-                  shelfCode: b.storageLocationId || "-",
-                  binCode: "-",
-                  availableQuantity: b.quantityOnHand,
-                  quantityToIssue: Math.min(b.quantityOnHand, line.quantityRequested || line.quantity)
-               }));
-            } catch (e) { console.error("[D1 Error]", e); }
-         } else {
-            allocations = fallbackState.balances.filter(b => b.itemId === line.itemId && Number(b.quantityOnHand) > 0).map(b => ({
-               batchNumber: b.batchId || "N/A",
-               storeName: "Main Store",
-               shelfCode: b.storageLocationId || "-",
-               binCode: "-",
-               availableQuantity: b.quantityOnHand,
-               quantityToIssue: Math.min(Number(b.quantityOnHand), line.quantityRequested || line.quantity)
-            }));
-         }
-         picks.push({
-            item: line.item,
-            quantityRequested: line.quantityRequested || line.quantity,
-            allocations
-         });
-      }
-
       return jsonResponse({
         issue,
-        picks,
         lines: issue?.lines || []
       });
     }
@@ -2938,7 +2832,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const issue = await getOrFetchIssue(id, env);
       if (!issue) return jsonResponse({ message: "Issue request not found" }, 404);
       issue.status = "REJECTED";
-      await recordAudit(env, fallbackState, user, "issue.reject", "IssueRequest", issue.id);
+
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockIssueVoucher SET status = 'REJECTED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
@@ -2956,25 +2850,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       issue.status = "ISSUED";
       for (const line of issue.lines || []) {
         line.quantityIssued = Number(line.quantityApproved ?? line.quantityRequested ?? line.quantity ?? 0);
+        const currentBalance = fallbackState.balances
+          .filter(b => b.itemId === line.itemId)
+          .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
         const issuedQty = line.quantityIssued || line.quantityRequested || 1;
-
-        let currentBalance = 0;
-        if (env.DB) {
-           try {
-              const res = await env.DB.prepare("SELECT SUM(quantityOnHand) as total FROM StockLocationBalance WHERE itemId = ?").bind(line.itemId).first<any>();
-              currentBalance = Number(res?.total || 0);
-           } catch (e) { console.error("[D1 Error]", e); }
-        }
-        if (!env.DB || currentBalance === 0) {
-           currentBalance = fallbackState.balances
-             .filter(b => b.itemId === line.itemId)
-             .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
-        }
-
         const balanceAfter = Math.max(0, currentBalance - issuedQty);
         
-        let linePrice = Number(line.unitPrice || line.item?.unitPrice || line.item?.unitCost || 0);
-
         const led = {
           id: uid("led"),
           itemId: line.itemId,
@@ -2982,68 +2863,18 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           quantityIn: 0,
           quantityOut: issuedQty,
           balanceAfter: balanceAfter,
-          unitCost: linePrice,
-          unitPrice: linePrice,
           referenceType: "SIV",
           referenceId: issue.sivNumber,
           createdAt: new Date().toISOString()
         };
         fallbackState.ledger.unshift(led);
 
-        // Deduct from fallback state balances
-        let remainingDeduct = issuedQty;
-        for (const fb of fallbackState.balances) {
-           if (fb.itemId === line.itemId && Number(fb.quantityOnHand) > 0) {
-              if (remainingDeduct <= 0) break;
-              const deduct = Math.min(remainingDeduct, Number(fb.quantityOnHand));
-              fb.quantityOnHand = Number(fb.quantityOnHand) - deduct;
-              remainingDeduct -= deduct;
-           }
-        }
-
         if (env.DB) {
           try {
-            // First fetch the actual price if not set
-            if (!linePrice) {
-               const batchRec = await env.DB.prepare("SELECT unitCost FROM StockBatch WHERE itemId = ? ORDER BY createdAt DESC LIMIT 1").bind(line.itemId).first<any>();
-               linePrice = Number(batchRec?.unitCost || 0);
-               led.unitPrice = linePrice;
-               led.unitCost = linePrice;
-            }
-
-            // Update in-memory line
-            line.quantityIssued = issuedQty;
-            line.unitPrice = linePrice;
-
             await env.DB.prepare(
-              `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
-               VALUES (?, ?, 'ISSUE', 0, ?, ?, ?, 'SIV', ?, datetime('now'))`
-            ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, linePrice, issue.sivNumber).run();
-
-            await env.DB.prepare(
-              "UPDATE StockIssueLine SET quantityIssued = ?, unitPrice = ? WHERE id = ?"
-            ).bind(issuedQty, linePrice, line.id).run();
-
-            // Deduct from StockLocationBalance
-            let remLoc = issuedQty;
-            const balances = await env.DB.prepare("SELECT id, quantityOnHand FROM StockLocationBalance WHERE itemId = ? AND quantityOnHand > 0 ORDER BY createdAt ASC").bind(line.itemId).all<any>();
-            for (const b of (balances.results || [])) {
-               if (remLoc <= 0) break;
-               const deduct = Math.min(remLoc, Number(b.quantityOnHand));
-               await env.DB.prepare("UPDATE StockLocationBalance SET quantityOnHand = quantityOnHand - ?, updatedAt = datetime('now') WHERE id = ?").bind(deduct, b.id).run();
-               remLoc -= deduct;
-            }
-
-            // Deduct from StockBatch
-            let remBatch = issuedQty;
-            const batches = await env.DB.prepare("SELECT id, remainingQuantity FROM StockBatch WHERE itemId = ? AND remainingQuantity > 0 ORDER BY expiryDate ASC, createdAt ASC").bind(line.itemId).all<any>();
-            for (const bt of (batches.results || [])) {
-               if (remBatch <= 0) break;
-               const deduct = Math.min(remBatch, Number(bt.remainingQuantity));
-               await env.DB.prepare("UPDATE StockBatch SET remainingQuantity = remainingQuantity - ?, updatedAt = datetime('now') WHERE id = ?").bind(deduct, bt.id).run();
-               remBatch -= deduct;
-            }
-
+              `INSERT INTO StockLedgerEntry (id, itemId, entryType, quantityIn, quantityOut, balanceAfter, referenceType, referenceId, createdAt)
+               VALUES (?, ?, 'ISSUE', 0, ?, ?, 'SIV', ?, datetime('now'))`
+            ).bind(led.id, line.itemId, led.quantityOut, balanceAfter, issue.sivNumber).run();
           } catch (e) { console.error("[D1 Error]", e); }
         }
       }
@@ -3054,9 +2885,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             .bind(user?.id || "usr-admin", issue.id).run();
         } catch (e) { console.error("[D1 Error]", e); }
       }
-
-      issue.issuedById = user?.id || "usr-admin";
-      issue.updatedAt = new Date().toISOString();
 
       return jsonResponse(enrichIssue(issue));
     }
@@ -3264,7 +3092,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
-      await recordAudit(env, fallbackState, user, "count.open", "PhysicalCount", count.id);
       return jsonResponse(count, 201);
     }
 
@@ -3277,7 +3104,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       count.status = "COMPLETED";
       count.submittedAt = new Date().toISOString();
       count.lines = body.lines || count.lines;
-      await recordAudit(env, fallbackState, user, "count.submit", "PhysicalCount", count.id);
 
       if (env.DB) {
         try {
@@ -3403,7 +3229,6 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
-      await recordAudit(env, fallbackState, user, "disposal.create", "StockDisposal", disp.id);
       return jsonResponse(enrichDisposal(disp), 201);
     }
 
@@ -3412,7 +3237,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "APPROVED";
-      await recordAudit(env, fallbackState, user, "disposal.approve", "StockDisposal", disp.id);
+
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'APPROVED', approvedById = ?, updatedAt = datetime('now') WHERE id = ?")
@@ -3447,7 +3272,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const disp = await getOrFetchDisposal(id, env);
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "DISPOSED";
-      await recordAudit(env, fallbackState, user, "disposal.dispose", "StockDisposal", disp.id);
+
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'DISPOSED', updatedAt = datetime('now') WHERE id = ?")

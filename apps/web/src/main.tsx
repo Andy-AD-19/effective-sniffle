@@ -210,6 +210,7 @@ const roleNavViews: Record<RoleName, AppView[]> = {
 		'counts',
 		'disposals',
 		'reports',
+		'master',
 		'help',
 	],
 	DEPARTMENT_USER: ['dashboard', 'issues', 'returns', 'reports', 'help'],
@@ -221,6 +222,7 @@ const roleNavViews: Record<RoleName, AppView[]> = {
 		'disposals',
 		'ledger',
 		'reports',
+		'master',
 		'help',
 	],
 	INSPECTOR: [
@@ -11785,10 +11787,22 @@ function App() {
 	useEffect(() => {
 		document.documentElement.classList.toggle('dark', theme === 'dark')
 		void writeStoredValue('theme', theme)
+        if (session && session.user && session.user.role === 'SYSTEM_ADMINISTRATOR' && theme) {
+            request('/settings', session.accessToken, { method: 'PATCH', body: JSON.stringify({ theme }) }).catch(console.error)
+        }
 	}, [theme])
 	useEffect(() => {
 		void readStoredValue<Session | null>('fmoh-session', session).then(
-			setSession
+			(s) => {
+			    setSession(s)
+			    if (s && s.accessToken) {
+			        request('/settings', s.accessToken).then((res: any) => {
+			            if (res && res.theme && res.theme !== theme) {
+			                setTheme(res.theme)
+			            }
+			        }).catch(console.error)
+			    }
+			}
 		)
 		void readStoredValue('theme', theme).then(setTheme)
 		void readStoredValue('fmoh-help-tour-complete', !tourOpen).then(
