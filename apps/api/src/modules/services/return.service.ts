@@ -49,21 +49,23 @@ export class ReturnService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: LedgerService,
-    private readonly audit: AuditService
+    private readonly audit: AuditService,
   ) {}
 
   async getOrCreateReturnedStorageLocation() {
     let store = await this.prisma.storeLocation.findFirst({
-      where: { OR: [{ code: "RETURNED" }, { name: "Returned Items Location" }] }
+      where: {
+        OR: [{ code: "RETURNED" }, { name: "Returned Items Location" }],
+      },
     });
     if (!store) {
       store = await this.prisma.storeLocation.create({
-        data: { code: "RETURNED", name: "Returned Items Location" }
+        data: { code: "RETURNED", name: "Returned Items Location" },
       });
     }
 
     let storageLoc = await this.prisma.storageLocation.findFirst({
-      where: { storeId: store.id, locationCode: "RET-HOLDING-01" }
+      where: { storeId: store.id, locationCode: "RET-HOLDING-01" },
     });
     if (!storageLoc) {
       storageLoc = await this.prisma.storageLocation.create({
@@ -74,8 +76,9 @@ export class ReturnService {
           shelfNumber: "R1",
           rackNumber: "R-RET",
           binNumber: "HOLD",
-          description: "Dedicated holding location for returned items pending inspection"
-        }
+          description:
+            "Dedicated holding location for returned items pending inspection",
+        },
       });
     }
     return { store, storageLocation: storageLoc };
@@ -83,7 +86,9 @@ export class ReturnService {
 
   async create(actorId: string, input: CreateReturnDto) {
     if (!input.lines || input.lines.length === 0) {
-      throw new BadRequestException("At least one return item line must be provided");
+      throw new BadRequestException(
+        "At least one return item line must be provided",
+      );
     }
 
     let voucher: any = null;
@@ -93,7 +98,7 @@ export class ReturnService {
     if (input.voucherId) {
       voucher = await this.prisma.storeIssueVoucher.findUnique({
         where: { id: input.voucherId },
-        include: { issueRequest: { include: { department: true } } }
+        include: { issueRequest: { include: { department: true } } },
       });
       if (voucher?.issueRequest) {
         issueRequest = voucher.issueRequest;
@@ -102,7 +107,7 @@ export class ReturnService {
     } else if (input.issueRequestId) {
       issueRequest = await this.prisma.issueRequest.findUnique({
         where: { id: input.issueRequestId },
-        include: { voucher: true, department: true }
+        include: { voucher: true, department: true },
       });
       if (issueRequest) {
         departmentId = departmentId ?? issueRequest.departmentId;
@@ -110,7 +115,8 @@ export class ReturnService {
       }
     }
 
-    const { store: retStore, storageLocation: retLoc } = await this.getOrCreateReturnedStorageLocation();
+    const { store: retStore, storageLocation: retLoc } =
+      await this.getOrCreateReturnedStorageLocation();
 
     const returnNumber = await this.nextReturnNumber();
     const returnRecord = await this.prisma.itemReturn.create({
@@ -131,35 +137,41 @@ export class ReturnService {
             batchNumber: line.batchNumber,
             storageLocationId: retLoc.id,
             conditionNotes: line.conditionNotes,
-            status: ReturnStatus.PENDING_INSPECTION
-          }))
-        }
+            status: ReturnStatus.PENDING_INSPECTION,
+          })),
+        },
       },
       include: {
-        lines: { include: { item: { include: { category: true, unit: true } } } },
+        lines: {
+          include: { item: { include: { category: true, unit: true } } },
+        },
         voucher: true,
         issueRequest: { include: { department: true } },
         department: true,
-        returnedBy: true
-      }
+        returnedBy: true,
+      },
     });
 
     for (const line of returnRecord.lines) {
       const batch = line.batchId
-        ? await this.prisma.stockBatch.findUnique({ where: { id: line.batchId } })
-        : await this.prisma.stockBatch.findFirst({ where: { itemId: line.itemId } });
+        ? await this.prisma.stockBatch.findUnique({
+            where: { id: line.batchId },
+          })
+        : await this.prisma.stockBatch.findFirst({
+            where: { itemId: line.itemId },
+          });
 
       if (batch) {
         await this.prisma.stockLocationBalance.upsert({
           where: {
             batchId_storageLocationId: {
               batchId: batch.id,
-              storageLocationId: retLoc.id
-            }
+              storageLocationId: retLoc.id,
+            },
           },
           update: {
             quantityOnHand: { increment: line.quantityReturned },
-            quantityAvailable: { increment: line.quantityReturned }
+            quantityAvailable: { increment: line.quantityReturned },
           },
           create: {
             itemId: line.itemId,
@@ -167,8 +179,8 @@ export class ReturnService {
             storeId: retStore.id,
             storageLocationId: retLoc.id,
             quantityOnHand: line.quantityReturned,
-            quantityAvailable: line.quantityReturned
-          }
+            quantityAvailable: line.quantityReturned,
+          },
         });
       }
 
@@ -188,8 +200,12 @@ export class ReturnService {
           sourceEntity: "ItemReturn",
           sourceId: returnRecord.id,
           actorId,
-          notes: "Item return received into Returned Items holding location (" + retLoc.locationCode + ") pending inspection. Reason: " + input.reason
-        }
+          notes:
+            "Item return received into Returned Items holding location (" +
+            retLoc.locationCode +
+            ") pending inspection. Reason: " +
+            input.reason,
+        },
       });
     }
 
@@ -198,7 +214,7 @@ export class ReturnService {
       action: "return.create",
       entityType: "ItemReturn",
       entityId: returnRecord.id,
-      after: returnRecord
+      after: returnRecord,
     });
 
     return returnRecord;
@@ -219,10 +235,12 @@ export class ReturnService {
         lines: {
           include: {
             item: { include: { category: true, unit: true } },
-            storageLocation: { include: { store: true } }
-          }
+            storageLocation: { include: { store: true } },
+          },
         },
-        voucher: { include: { issueRequest: { include: { department: true } } } },
+        voucher: {
+          include: { issueRequest: { include: { department: true } } },
+        },
         issueRequest: { include: { department: true } },
         department: true,
         returnedBy: true,
@@ -230,11 +248,11 @@ export class ReturnService {
           include: {
             inspectedBy: true,
             targetStore: true,
-            targetStorageLocation: true
-          }
-        }
+            targetStorageLocation: true,
+          },
+        },
       },
-      orderBy: { returnedAt: "desc" }
+      orderBy: { returnedAt: "desc" },
     });
   }
 
@@ -245,10 +263,12 @@ export class ReturnService {
         lines: {
           include: {
             item: { include: { category: true, unit: true } },
-            storageLocation: { include: { store: true } }
-          }
+            storageLocation: { include: { store: true } },
+          },
         },
-        voucher: { include: { issueRequest: { include: { department: true } } } },
+        voucher: {
+          include: { issueRequest: { include: { department: true } } },
+        },
         issueRequest: { include: { department: true } },
         department: true,
         returnedBy: true,
@@ -256,10 +276,10 @@ export class ReturnService {
           include: {
             inspectedBy: true,
             targetStore: true,
-            targetStorageLocation: true
-          }
-        }
-      }
+            targetStorageLocation: true,
+          },
+        },
+      },
     });
   }
 
@@ -269,26 +289,34 @@ export class ReturnService {
       throw new BadRequestException("This return has already been inspected");
     }
 
-    const { store: retStore, storageLocation: retLoc } = await this.getOrCreateReturnedStorageLocation();
+    const { store: retStore, storageLocation: retLoc } =
+      await this.getOrCreateReturnedStorageLocation();
 
     let targetStore = input.targetStoreId
-      ? await this.prisma.storeLocation.findUnique({ where: { id: input.targetStoreId } })
+      ? await this.prisma.storeLocation.findUnique({
+          where: { id: input.targetStoreId },
+        })
       : await this.prisma.storeLocation.findFirst({ where: { code: "MAIN" } });
     if (!targetStore) {
       targetStore = await this.prisma.storeLocation.findFirst();
     }
 
     let targetStorageLoc = input.targetStorageLocationId
-      ? await this.prisma.storageLocation.findUnique({ where: { id: input.targetStorageLocationId } })
+      ? await this.prisma.storageLocation.findUnique({
+          where: { id: input.targetStorageLocationId },
+        })
       : targetStore
-      ? await this.prisma.storageLocation.findFirst({ where: { storeId: targetStore.id, isActive: true } })
-      : null;
+        ? await this.prisma.storageLocation.findFirst({
+            where: { storeId: targetStore.id, isActive: true },
+          })
+        : null;
 
     let overallAccepted = 0;
     let overallRejected = 0;
     let totalInspected = 0;
 
-    const lineInputs = input.lines && input.lines.length > 0 ? input.lines : null;
+    const lineInputs =
+      input.lines && input.lines.length > 0 ? input.lines : null;
 
     for (const line of returnRecord.lines) {
       const lineInput = lineInputs?.find((l) => l.lineId === line.id);
@@ -320,24 +348,34 @@ export class ReturnService {
       totalInspected += qtyReturned;
 
       const batch = line.batchId
-        ? await this.prisma.stockBatch.findUnique({ where: { id: line.batchId } })
-        : await this.prisma.stockBatch.findFirst({ where: { itemId: line.itemId } });
+        ? await this.prisma.stockBatch.findUnique({
+            where: { id: line.batchId },
+          })
+        : await this.prisma.stockBatch.findFirst({
+            where: { itemId: line.itemId },
+          });
 
       if (batch) {
         const holdBal = await this.prisma.stockLocationBalance.findUnique({
           where: {
             batchId_storageLocationId: {
               batchId: batch.id,
-              storageLocationId: retLoc.id
-            }
-          }
+              storageLocationId: retLoc.id,
+            },
+          },
         });
         if (holdBal) {
-          const newOnHand = Math.max(0, Number(holdBal.quantityOnHand) - qtyReturned);
-          const newAvail = Math.max(0, Number(holdBal.quantityAvailable) - qtyReturned);
+          const newOnHand = Math.max(
+            0,
+            Number(holdBal.quantityOnHand) - qtyReturned,
+          );
+          const newAvail = Math.max(
+            0,
+            Number(holdBal.quantityAvailable) - qtyReturned,
+          );
           await this.prisma.stockLocationBalance.update({
             where: { id: holdBal.id },
-            data: { quantityOnHand: newOnHand, quantityAvailable: newAvail }
+            data: { quantityOnHand: newOnHand, quantityAvailable: newAvail },
           });
         }
       }
@@ -347,12 +385,12 @@ export class ReturnService {
           where: {
             batchId_storageLocationId: {
               batchId: batch.id,
-              storageLocationId: targetStorageLoc.id
-            }
+              storageLocationId: targetStorageLoc.id,
+            },
           },
           update: {
             quantityOnHand: { increment: accepted },
-            quantityAvailable: { increment: accepted }
+            quantityAvailable: { increment: accepted },
           },
           create: {
             itemId: line.itemId,
@@ -360,8 +398,8 @@ export class ReturnService {
             storeId: targetStore.id,
             storageLocationId: targetStorageLoc.id,
             quantityOnHand: accepted,
-            quantityAvailable: accepted
-          }
+            quantityAvailable: accepted,
+          },
         });
 
         await this.prisma.stockLedgerEntry.create({
@@ -380,8 +418,15 @@ export class ReturnService {
             sourceEntity: "ReturnInspection",
             sourceId: returnRecord.id,
             actorId,
-            notes: "Returned item accepted by inspection and restocked to " + targetStore.name + " (" + targetStorageLoc.locationCode + "). Quality: " + (input.qualityStatus ?? "PASS") + "."
-          }
+            notes:
+              "Returned item accepted by inspection and restocked to " +
+              targetStore.name +
+              " (" +
+              targetStorageLoc.locationCode +
+              "). Quality: " +
+              (input.qualityStatus ?? "PASS") +
+              ".",
+          },
         });
       }
 
@@ -402,8 +447,13 @@ export class ReturnService {
             sourceEntity: "ReturnInspection",
             sourceId: returnRecord.id,
             actorId,
-            notes: "Returned item rejected by inspection: " + (input.rejectionReason ?? lineInput?.rejectionReason ?? "Damaged/Unusable stock") + ". Held in quarantine."
-          }
+            notes:
+              "Returned item rejected by inspection: " +
+              (input.rejectionReason ??
+                lineInput?.rejectionReason ??
+                "Damaged/Unusable stock") +
+              ". Held in quarantine.",
+          },
         });
       }
 
@@ -412,8 +462,13 @@ export class ReturnService {
         data: {
           quantityAccepted: accepted,
           quantityRejected: rejected,
-          status: rejected === 0 ? "PASSED" : accepted === 0 ? "FAILED" : "PARTIALLY_PASSED"
-        }
+          status:
+            rejected === 0
+              ? "PASSED"
+              : accepted === 0
+                ? "FAILED"
+                : "PARTIALLY_PASSED",
+        },
       });
     }
 
@@ -421,14 +476,16 @@ export class ReturnService {
       overallRejected === 0
         ? ReturnStatus.APPROVED
         : overallAccepted === 0
-        ? ReturnStatus.REJECTED
-        : ReturnStatus.PARTIALLY_APPROVED;
+          ? ReturnStatus.REJECTED
+          : ReturnStatus.PARTIALLY_APPROVED;
 
     const inspection = await this.prisma.returnInspection.create({
       data: {
         returnId,
         outcome: input.outcome,
-        qualityStatus: input.qualityStatus ?? (finalStatus === ReturnStatus.APPROVED ? "PASS" : "FAIL"),
+        qualityStatus:
+          input.qualityStatus ??
+          (finalStatus === ReturnStatus.APPROVED ? "PASS" : "FAIL"),
         quantityInspected: totalInspected,
         quantityAccepted: overallAccepted,
         quantityRejected: overallRejected,
@@ -436,13 +493,13 @@ export class ReturnService {
         targetStorageLocationId: targetStorageLoc?.id,
         rejectionReason: input.rejectionReason,
         remarks: input.remarks,
-        inspectedById: actorId
-      }
+        inspectedById: actorId,
+      },
     });
 
     await this.prisma.itemReturn.update({
       where: { id: returnId },
-      data: { status: finalStatus }
+      data: { status: finalStatus },
     });
 
     const updated = await this.findOne(returnId);
@@ -451,7 +508,7 @@ export class ReturnService {
       action: "return.inspect",
       entityType: "ItemReturn",
       entityId: returnId,
-      after: { returnRecord: updated, inspection }
+      after: { returnRecord: updated, inspection },
     });
 
     return updated;
@@ -461,31 +518,40 @@ export class ReturnService {
     const pendingReturns = await this.prisma.itemReturn.findMany({
       where: { status: ReturnStatus.PENDING_INSPECTION },
       include: {
-        lines: { include: { item: { include: { category: true, unit: true } }, storageLocation: true } },
-        voucher: { include: { issueRequest: { include: { department: true } } } },
+        lines: {
+          include: {
+            item: { include: { category: true, unit: true } },
+            storageLocation: true,
+          },
+        },
+        voucher: {
+          include: { issueRequest: { include: { department: true } } },
+        },
         department: true,
-        returnedBy: true
+        returnedBy: true,
       },
-      orderBy: { returnedAt: "desc" }
+      orderBy: { returnedAt: "desc" },
     });
 
     const pendingGrns = await this.prisma.goodsReceivingLine.findMany({
       where: { inspection: null },
       include: {
         item: { include: { category: true, unit: true } },
-        grn: { include: { supplierDonor: true } }
+        grn: { include: { supplierDonor: true } },
       },
-      orderBy: { grn: { createdAt: "desc" } }
+      orderBy: { grn: { createdAt: "desc" } },
     });
 
     const recentInspections = await this.prisma.returnInspection.findMany({
       include: {
-        returnRecord: { include: { lines: { include: { item: true } }, department: true } },
+        returnRecord: {
+          include: { lines: { include: { item: true } }, department: true },
+        },
         inspectedBy: true,
-        targetStore: true
+        targetStore: true,
       },
       orderBy: { inspectedAt: "desc" },
-      take: 25
+      take: 25,
     });
 
     return { pendingReturns, pendingGrns, recentInspections };
@@ -496,10 +562,12 @@ export class ReturnService {
       where: { status: { in: ["SUBMITTED", "PENDING_APPROVAL"] } },
       include: {
         department: true,
-        lines: { include: { item: { include: { category: true, unit: true } } } },
-        approval: true
+        lines: {
+          include: { item: { include: { category: true, unit: true } } },
+        },
+        approval: true,
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     const pendingAdjustments = await this.prisma.stockAdjustment.findMany({
@@ -507,17 +575,28 @@ export class ReturnService {
       include: {
         item: { include: { category: true, unit: true } },
         requestedBy: true,
-        physicalCount: true
+        physicalCount: true,
       },
-      orderBy: { createdAt: "desc" }
+      orderBy: { createdAt: "desc" },
     });
 
     const pendingDisposals = await this.prisma.disposalRequest.findMany({
-      where: { status: { in: ["PENDING_APPROVAL", "SUBMITTED", "COMMITTEE_REVIEW", "UNDER_REVIEW"] } },
-      include: {
-        lines: { include: { item: { include: { category: true, unit: true } } } }
+      where: {
+        status: {
+          in: [
+            "PENDING_APPROVAL",
+            "SUBMITTED",
+            "COMMITTEE_REVIEW",
+            "UNDER_REVIEW",
+          ],
+        },
       },
-      orderBy: { createdAt: "desc" }
+      include: {
+        lines: {
+          include: { item: { include: { category: true, unit: true } } },
+        },
+      },
+      orderBy: { createdAt: "desc" },
     });
 
     return { pendingIssues, pendingAdjustments, pendingDisposals };
@@ -525,7 +604,11 @@ export class ReturnService {
 
   private async nextReturnNumber() {
     const count = await this.prisma.itemReturn.count();
-    return "RET-" + new Date().getFullYear() + "-" + String(count + 1).padStart(6, "0");
+    return (
+      "RET-" +
+      new Date().getFullYear() +
+      "-" +
+      String(count + 1).padStart(6, "0")
+    );
   }
 }
-

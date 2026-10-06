@@ -13,9 +13,9 @@ export default {
         "muted-foreground": "hsl(var(--muted-foreground))",
         primary: "hsl(var(--primary))",
         "primary-foreground": "hsl(var(--primary-foreground))",
-        danger: "hsl(var(--danger))"
-      }
-    }
+        danger: "hsl(var(--danger))",
+      },
+    },
   },
-  plugins: []
+  plugins: [],
 } satisfies Config;

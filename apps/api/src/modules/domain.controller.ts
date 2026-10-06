@@ -1,13 +1,41 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { tmpdir } from "node:os";
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from "class-validator";
 import { Type } from "class-transformer";
-import { CountCycleType, ItemKind, QualityStatus, RoleName, StockSourceType } from "./domain/prisma-enums";
+import {
+  CountCycleType,
+  ItemKind,
+  QualityStatus,
+  RoleName,
+  StockSourceType,
+} from "./domain/prisma-enums";
 import { permissions } from "@fmoh/shared";
 import { CurrentUser } from "./auth/current-user.decorator";
-import { RequireAnyPermission, RequirePermissions } from "./auth/permissions.decorator";
+import {
+  RequireAnyPermission,
+  RequirePermissions,
+} from "./auth/permissions.decorator";
 import { DisposalService } from "./services/disposal.service";
 import { InventoryService } from "./services/inventory.service";
 import { IssueService } from "./services/issue.service";
@@ -65,7 +93,10 @@ class GrnDto {
   @IsOptional() @IsString() deliveryNoteRef?: string;
   @IsString() supplierDonorId!: string;
   @IsOptional() @IsString() remarks?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => GrnLineDto) lines!: GrnLineDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GrnLineDto)
+  lines!: GrnLineDto[];
 }
 
 class InspectDto {
@@ -90,7 +121,10 @@ class IssueDto {
   @IsString() departmentId!: string;
   @IsString() recipientName!: string;
   @IsString() purpose!: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => RequestLineDto) lines!: RequestLineDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RequestLineDto)
+  lines!: RequestLineDto[];
 }
 
 class UserDto {
@@ -155,7 +189,10 @@ class CreateReturnDto {
   @IsOptional() @IsString() departmentId?: string;
   @IsString() reason!: string;
   @IsOptional() @IsString() conditionNotes?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => ReturnLineDto) lines!: ReturnLineDto[];
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReturnLineDto)
+  lines!: ReturnLineDto[];
 }
 
 class InspectReturnLineDto {
@@ -177,7 +214,11 @@ class InspectReturnDto {
   @IsOptional() @IsString() remarks?: string;
   @IsOptional() @IsString() targetStoreId?: string;
   @IsOptional() @IsString() targetStorageLocationId?: string;
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => InspectReturnLineDto) lines?: InspectReturnLineDto[];
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InspectReturnLineDto)
+  lines?: InspectReturnLineDto[];
 }
 
 @Controller()
@@ -195,16 +236,26 @@ export class DomainController {
     private readonly auditQuery: AuditQueryService,
     private readonly notifications: NotificationsService,
     private readonly storage: StorageService,
-    private readonly files: FileUploadService
+    private readonly files: FileUploadService,
   ) {}
 
   @Post("uploads")
-  @UseInterceptors(FileInterceptor("file", { storage: diskStorage({ destination: tmpdir() }) }))
-  uploadFile(@CurrentUser() user: any, @UploadedFile() file: any, @Body() body: { category?: string }) {
-    return this.files.save(user.sub, file, body.category ?? "supporting-document").catch((error) => {
-      this.files.cleanupTemp(file);
-      throw error;
-    });
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: tmpdir() }),
+    }),
+  )
+  uploadFile(
+    @CurrentUser() user: any,
+    @UploadedFile() file: any,
+    @Body() body: { category?: string },
+  ) {
+    return this.files
+      .save(user.sub, file, body.category ?? "supporting-document")
+      .catch((error) => {
+        this.files.cleanupTemp(file);
+        throw error;
+      });
   }
 
   @Get("uploads/:id")
@@ -232,13 +283,21 @@ export class DomainController {
 
   @Patch("admin/users/:id")
   @RequirePermissions(permissions.USER_MANAGE)
-  updateUser(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: Partial<UserDto & { active: boolean }>) {
+  updateUser(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: Partial<UserDto & { active: boolean }>,
+  ) {
     return this.users.update(user.sub, id, dto);
   }
 
   @Patch("admin/users/:id/active")
   @RequirePermissions(permissions.USER_MANAGE)
-  setUserActive(@CurrentUser() user: any, @Param("id") id: string, @Body() body: { active: boolean }) {
+  setUserActive(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: { active: boolean },
+  ) {
     return this.users.setActive(user.sub, id, body.active);
   }
 
@@ -250,19 +309,32 @@ export class DomainController {
 
   @Post("admin/master-data/:model")
   @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
-  masterCreate(@CurrentUser() user: any, @Param("model") model: any, @Body() dto: MasterDto) {
+  masterCreate(
+    @CurrentUser() user: any,
+    @Param("model") model: any,
+    @Body() dto: MasterDto,
+  ) {
     return this.master.create(user.sub, model, dto);
   }
 
   @Patch("admin/master-data/:model/:id")
   @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
-  masterUpdate(@CurrentUser() user: any, @Param("model") model: any, @Param("id") id: string, @Body() dto: Partial<MasterDto & { active: boolean }>) {
+  masterUpdate(
+    @CurrentUser() user: any,
+    @Param("model") model: any,
+    @Param("id") id: string,
+    @Body() dto: Partial<MasterDto & { active: boolean }>,
+  ) {
     return this.master.update(user.sub, model, id, dto);
   }
 
   @Delete("admin/master-data/:model")
   @RequireAnyPermission(permissions.USER_MANAGE, permissions.ITEM_WRITE)
-  masterDeleteMany(@CurrentUser() user: any, @Param("model") model: any, @Body() dto: { ids: string[] }) {
+  masterDeleteMany(
+    @CurrentUser() user: any,
+    @Param("model") model: any,
+    @Body() dto: { ids: string[] },
+  ) {
     return this.master.deleteMany(user.sub, model, dto.ids ?? []);
   }
 
@@ -286,19 +358,30 @@ export class DomainController {
 
   @Post("storage-locations")
   @RequirePermissions(permissions.STORAGE_WRITE)
-  createStorageLocation(@CurrentUser() user: any, @Body() dto: StorageLocationDto) {
+  createStorageLocation(
+    @CurrentUser() user: any,
+    @Body() dto: StorageLocationDto,
+  ) {
     return this.storage.createLocation(user.sub, dto);
   }
 
   @Patch("storage-locations/:id")
   @RequirePermissions(permissions.STORAGE_WRITE)
-  updateStorageLocation(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: Partial<StorageLocationDto & { isActive: boolean }>) {
+  updateStorageLocation(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: Partial<StorageLocationDto & { isActive: boolean }>,
+  ) {
     return this.storage.updateLocation(user.sub, id, dto);
   }
 
   @Patch("storage-locations/:id/active")
   @RequirePermissions(permissions.STORAGE_WRITE)
-  setStorageLocationActive(@CurrentUser() user: any, @Param("id") id: string, @Body() body: { active: boolean }) {
+  setStorageLocationActive(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: { active: boolean },
+  ) {
     return this.storage.setLocationActive(user.sub, id, body.active);
   }
 
@@ -310,7 +393,11 @@ export class DomainController {
 
   @Post("stock-batches/:id/allocate")
   @RequirePermissions(permissions.STORAGE_WRITE)
-  allocateBatch(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: StorageAllocationDto) {
+  allocateBatch(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: StorageAllocationDto,
+  ) {
     return this.storage.allocate(user.sub, id, dto);
   }
 
@@ -340,10 +427,18 @@ export class DomainController {
 
   @Post("items/import")
   @RequirePermissions(permissions.ITEM_WRITE)
-  @UseInterceptors(FileInterceptor("file", { storage: diskStorage({ destination: tmpdir() }) }))
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: tmpdir() }),
+    }),
+  )
   async importItems(@CurrentUser() user: any, @UploadedFile() file: any) {
     try {
-      return await this.inventory.importItemsFromExcel(user.sub, file?.path, file?.originalname);
+      return await this.inventory.importItemsFromExcel(
+        user.sub,
+        file?.path,
+        file?.originalname,
+      );
     } finally {
       this.files.cleanupTemp(file);
     }
@@ -351,13 +446,21 @@ export class DomainController {
 
   @Patch("items/:id")
   @RequirePermissions(permissions.ITEM_WRITE)
-  updateItem(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: Partial<ItemDto>) {
+  updateItem(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: Partial<ItemDto>,
+  ) {
     return this.inventory.updateItem(user.sub, id, dto);
   }
 
   @Patch("items/:id/files")
   @RequirePermissions(permissions.ITEM_WRITE)
-  updateItemFiles(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: { photoFileId?: string; documentFileId?: string }) {
+  updateItemFiles(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: { photoFileId?: string; documentFileId?: string },
+  ) {
     return this.inventory.updateItemFiles(user.sub, id, dto);
   }
 
@@ -369,19 +472,31 @@ export class DomainController {
 
   @Post("items/:id/custody")
   @RequirePermissions(permissions.ITEM_WRITE)
-  createItemCustody(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: AssetCustodyDto) {
+  createItemCustody(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: AssetCustodyDto,
+  ) {
     return this.inventory.createAssetCustody(user.sub, id, dto);
   }
 
   @Patch("asset-custody/:id")
   @RequirePermissions(permissions.ITEM_WRITE)
-  updateItemCustody(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: Partial<AssetCustodyDto>) {
+  updateItemCustody(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: Partial<AssetCustodyDto>,
+  ) {
     return this.inventory.updateAssetCustody(user.sub, id, dto);
   }
 
   @Patch("asset-custody/:id/return")
   @RequirePermissions(permissions.ITEM_WRITE)
-  returnItemCustody(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: { condition?: string; returnedAt?: string; notes?: string }) {
+  returnItemCustody(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: { condition?: string; returnedAt?: string; notes?: string },
+  ) {
     return this.inventory.returnAssetCustody(user.sub, id, dto);
   }
 
@@ -417,24 +532,38 @@ export class DomainController {
 
   @Post("receipts/lines/:id/inspect")
   @RequirePermissions(permissions.INSPECTION_WRITE)
-  inspect(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: InspectDto) {
+  inspect(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: InspectDto,
+  ) {
     return this.receiving.inspectLine(user.sub, id, dto);
   }
 
   @Get("ledger/balances")
   @RequirePermissions(permissions.LEDGER_READ)
   balances(@Query() query: any) {
-    return this.ledger.balances({ itemId: query.itemId, locationId: query.locationId });
+    return this.ledger.balances({
+      itemId: query.itemId,
+      locationId: query.locationId,
+    });
   }
 
   @Get("ledger/movements")
   @RequirePermissions(permissions.LEDGER_READ)
   movements(@Query() query: any) {
-    return this.ledger.movements({ itemId: query.itemId, batchId: query.batchId });
+    return this.ledger.movements({
+      itemId: query.itemId,
+      batchId: query.batchId,
+    });
   }
 
   @Get("issues")
-  @RequireAnyPermission(permissions.REQUEST_CREATE, permissions.ISSUE_APPROVE, permissions.ISSUE_EXECUTE)
+  @RequireAnyPermission(
+    permissions.REQUEST_CREATE,
+    permissions.ISSUE_APPROVE,
+    permissions.ISSUE_EXECUTE,
+  )
   issueRequests() {
     return this.issues.list();
   }
@@ -447,7 +576,11 @@ export class DomainController {
 
   @Post("issues/:id/approve")
   @RequirePermissions(permissions.ISSUE_APPROVE)
-  approveIssue(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  approveIssue(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.issues.decide(user.sub, id, true, body?.reason);
   }
 
@@ -459,19 +592,31 @@ export class DomainController {
 
   @Post("issues/:id/reject")
   @RequirePermissions(permissions.ISSUE_APPROVE)
-  rejectIssue(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  rejectIssue(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.issues.decide(user.sub, id, false, body?.reason);
   }
 
   @Post("issues/:id/issue")
   @RequirePermissions(permissions.ISSUE_EXECUTE)
-  executeIssue(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  executeIssue(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.issues.issueApproved(user.sub, id, body);
   }
 
   @Post("issues/:id/receive")
   @RequirePermissions(permissions.REQUEST_CREATE)
-  receiveIssue(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  receiveIssue(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.issues.acknowledgeReceipt(user.sub, id, body?.notes);
   }
 
@@ -483,13 +628,25 @@ export class DomainController {
 
   @Post("physical-counts")
   @RequirePermissions(permissions.COUNT_WRITE)
-  openCount(@CurrentUser() user: any, @Body() body: { cycleType: CountCycleType; locationId?: string; categoryId?: string }) {
+  openCount(
+    @CurrentUser() user: any,
+    @Body()
+    body: {
+      cycleType: CountCycleType;
+      locationId?: string;
+      categoryId?: string;
+    },
+  ) {
     return this.counts.open(user.sub, body);
   }
 
   @Post("physical-counts/:id/submit")
   @RequirePermissions(permissions.COUNT_WRITE)
-  submitCount(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  submitCount(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.counts.submit(user.sub, id, body);
   }
 
@@ -501,18 +658,29 @@ export class DomainController {
 
   @Post("adjustments/:id/approve")
   @RequirePermissions(permissions.ADJUSTMENT_APPROVE)
-  approveAdjustment(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  approveAdjustment(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.counts.decideAdjustment(user.sub, id, true, body?.comment);
   }
 
   @Post("adjustments/:id/reject")
   @RequirePermissions(permissions.ADJUSTMENT_APPROVE)
-  rejectAdjustment(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  rejectAdjustment(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.counts.decideAdjustment(user.sub, id, false, body?.comment);
   }
 
   @Get("disposals")
-  @RequireAnyPermission(permissions.DISPOSAL_WRITE, permissions.DISPOSAL_APPROVE)
+  @RequireAnyPermission(
+    permissions.DISPOSAL_WRITE,
+    permissions.DISPOSAL_APPROVE,
+  )
   disposalList() {
     return this.disposals.list();
   }
@@ -525,19 +693,31 @@ export class DomainController {
 
   @Post("disposals/:id/approve")
   @RequirePermissions(permissions.DISPOSAL_APPROVE)
-  approveDisposal(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  approveDisposal(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.disposals.approve(user.sub, id, body);
   }
 
   @Post("disposals/:id/reject")
   @RequirePermissions(permissions.DISPOSAL_APPROVE)
-  rejectDisposal(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  rejectDisposal(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.disposals.reject(user.sub, id, body);
   }
 
   @Post("disposals/:id/dispose")
   @RequirePermissions(permissions.DISPOSAL_WRITE)
-  dispose(@CurrentUser() user: any, @Param("id") id: string, @Body() body: any) {
+  dispose(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() body: any,
+  ) {
     return this.disposals.dispose(user.sub, id, body);
   }
 
@@ -561,7 +741,11 @@ export class DomainController {
 
   @Post("returns/:id/inspect")
   @RequirePermissions(permissions.RETURN_INSPECT)
-  inspectReturn(@CurrentUser() user: any, @Param("id") id: string, @Body() dto: InspectReturnDto) {
+  inspectReturn(
+    @CurrentUser() user: any,
+    @Param("id") id: string,
+    @Body() dto: InspectReturnDto,
+  ) {
     return this.returns.inspect(user.sub, id, dto);
   }
 

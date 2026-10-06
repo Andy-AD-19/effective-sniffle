@@ -38,7 +38,9 @@ npm run build --workspace @fmoh/web
 ```
 
 ### Build Artifacts
+
 The compiled web bundle is output to:
+
 ```text
 apps/web/dist/
 ├── _headers             # Cloudflare Pages security & caching headers
@@ -68,8 +70,8 @@ The repository includes all necessary Cloudflare configuration files:
 
 When deploying the frontend to Cloudflare Pages, configure the following environment variable:
 
-| Variable | Description | Example Value |
-| :--- | :--- | :--- |
+| Variable       | Description                                | Example Value                       |
+| :------------- | :----------------------------------------- | :---------------------------------- |
 | `VITE_API_URL` | Public base URL of your backend API server | `https://api.inventory.fmoh.gov.et` |
 
 > **Note:** If your Cloudflare Pages project proxies API requests on the same origin (e.g., via Cloudflare Worker routes at `/api/*`), you can leave `VITE_API_URL` empty or set it to your custom domain.
@@ -79,6 +81,7 @@ When deploying the frontend to Cloudflare Pages, configure the following environ
 ## 5. Deployment Options (Manual by User)
 
 ### Option A: Cloudflare Pages via Git Integration (Recommended)
+
 1. In the **Cloudflare Dashboard**, navigate to **Workers & Pages** > **Create application** > **Pages** > **Connect to Git** (Select `Andy-AD-19/effective-sniffle`).
 2. Configure build settings:
    - **Configuration Type 1 (Setting Root Directory to `apps/web`)**:
@@ -96,6 +99,7 @@ When deploying the frontend to Cloudflare Pages, configure the following environ
 4. Click **Save and Deploy**.
 
 ### Option B: Cloudflare Workers with Assets (Unified Worker & Frontend)
+
 When deploying the unified Cloudflare Worker with embedded static assets (`wrangler.jsonc`):
 
 ```bash
@@ -110,6 +114,7 @@ The application will be deployed directly to your Cloudflare Workers subdomain:
 `https://fmoh-inventory.<your-subdomain>.workers.dev`
 
 ### Option C: Cloudflare Pages CLI
+
 If deploying specifically as a standalone Cloudflare Pages project:
 
 ```bash
@@ -130,6 +135,7 @@ The repository includes a ready-to-deploy containerized configuration for the **
 - `render.yaml`: Blueprint for 1-click cloud deployment on [Render](https://render.com) with persistent database storage.
 
 ### Option A: Deploy Backend to Render (Free / Low Cost)
+
 1. Log into **[Render.com](https://render.com)**.
 2. Click **New +** > **Blueprint** (or **Web Service**).
 3. Connect your GitHub repository `https://github.com/Andy-AD-19/effective-sniffle`.
@@ -138,6 +144,7 @@ The repository includes a ready-to-deploy containerized configuration for the **
 6. In your **Cloudflare Web App** (on the login screen or via Cloudflare `VITE_API_URL` variable), set the URL to your Render API address.
 
 ### Option B: Deploy Backend to Railway / Fly.io / VPS
+
 1. Push this repository to **Railway** or **Fly.io** using Docker.
 2. Set Environment Variables:
    - `PORT`: `3001`
@@ -150,7 +157,7 @@ The repository includes a ready-to-deploy containerized configuration for the **
 ## 7. Verification & Health Check
 
 After deployment, verify:
+
 1. **Root Load**: Navigate to your Cloudflare Pages URL (e.g. `https://fmoh-inventory-web.pages.dev`).
 2. **SPA Routing**: Refresh on sub-routes (e.g., `/receipts`, `/issues`) to confirm client-side routing works without 404 errors.
 3. **API Connectivity**: Click **Configure Server API URL** on the login screen, test the connection to your cloud API endpoint, and sign in.
-

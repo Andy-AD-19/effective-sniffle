@@ -6,23 +6,23 @@
   "compatibility_flags": ["nodejs_compat"],
   "alias": {
     "exceljs/dist/exceljs.bare.min.js": "./src/vendor/exceljs.bare.min.js",
-    "exceljs": "./src/vendor/exceljs.bare.min.js"
+    "exceljs": "./src/vendor/exceljs.bare.min.js",
   },
   "assets": {
     "directory": "./apps/web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "html_handling": "auto-trailing-slash"
+    "html_handling": "auto-trailing-slash",
   },
   "vars": {
     "JWT_SECRET": "fmoh-institutional-inventory-secret-key-2026",
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "fmoh-inventory-db",
-      "database_id": "9fd0f230-c296-4c37-bf15-f5f5d16b2229"
-    }
-  ]
+      "database_id": "9fd0f230-c296-4c37-bf15-f5f5d16b2229",
+    },
+  ],
 }

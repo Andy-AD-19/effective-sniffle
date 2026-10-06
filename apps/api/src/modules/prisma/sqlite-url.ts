@@ -8,13 +8,17 @@ export function configureSqliteDatabaseUrl() {
   const configuredUrl = process.env.DATABASE_URL;
   if (configuredUrl) {
     if (!configuredUrl.startsWith(SQLITE_PROTOCOL)) {
-      throw new Error("DATABASE_URL must use a SQLite file: URL. PostgreSQL URLs are no longer supported.");
+      throw new Error(
+        "DATABASE_URL must use a SQLite file: URL. PostgreSQL URLs are no longer supported.",
+      );
     }
     ensureSqliteDirectory(configuredUrl);
     return configuredUrl;
   }
 
-  const databasePath = process.env.FMOH_DATABASE_PATH ?? join(applicationDataDirectory(), "fmoh-inventory.db");
+  const databasePath =
+    process.env.FMOH_DATABASE_PATH ??
+    join(applicationDataDirectory(), "fmoh-inventory.db");
   const sqliteUrl = `${SQLITE_PROTOCOL}${databasePath.replace(/\\/g, "/")}`;
   process.env.DATABASE_URL = sqliteUrl;
   ensureSqliteDirectory(sqliteUrl);
@@ -22,7 +26,10 @@ export function configureSqliteDatabaseUrl() {
 }
 
 function applicationDataDirectory() {
-  const baseDirectory = process.env.APPDATA ?? process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Roaming");
+  const baseDirectory =
+    process.env.APPDATA ??
+    process.env.LOCALAPPDATA ??
+    join(homedir(), "AppData", "Roaming");
   return join(baseDirectory, "FMOH Inventory");
 }
 

@@ -19,9 +19,11 @@ export class AuditService {
         action: data.action,
         entityType: data.entityType,
         entityId: data.entityId,
-        before: data.before === undefined ? undefined : JSON.stringify(data.before),
-        after: data.after === undefined ? undefined : JSON.stringify(data.after)
-      }
+        before:
+          data.before === undefined ? undefined : JSON.stringify(data.before),
+        after:
+          data.after === undefined ? undefined : JSON.stringify(data.after),
+      },
     });
   }
 }

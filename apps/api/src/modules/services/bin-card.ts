@@ -1,24 +1,26 @@
 export function buildBinCardRows(item: any, movements: any[]) {
   let balance = 0;
-  const rows: any[] = [{
-    id: `${item.id}-registration`,
-    date: item.createdAt,
-    reference: "Item registration",
-    transactionType: "REGISTRATION",
-    itemDescription: item.description,
-    source: item.createdBy?.fullName ?? item.createdBy?.email ?? "System",
-    destination: item.defaultLocation?.name ?? "N/A",
-    provider: "N/A",
-    department: "N/A",
-    batchNumber: "N/A",
-    expiryDate: null,
-    unitCost: 0,
-    totalPrice: 0,
-    receivedQuantity: 0,
-    issuedQuantity: 0,
-    balance,
-    remarks: "Item opened in the inventory register."
-  }];
+  const rows: any[] = [
+    {
+      id: `${item.id}-registration`,
+      date: item.createdAt,
+      reference: "Item registration",
+      transactionType: "REGISTRATION",
+      itemDescription: item.description,
+      source: item.createdBy?.fullName ?? item.createdBy?.email ?? "System",
+      destination: item.defaultLocation?.name ?? null,
+      provider: null,
+      department: null,
+      batchNumber: null,
+      expiryDate: null,
+      unitCost: 0,
+      totalPrice: 0,
+      receivedQuantity: 0,
+      issuedQuantity: 0,
+      balance,
+      remarks: "Item opened in the inventory register.",
+    },
+  ];
 
   for (const movement of movements) {
     const quantity = Number(movement.quantity);
@@ -27,30 +29,41 @@ export function buildBinCardRows(item: any, movements: any[]) {
     balance += balanceDelta;
     const isReceipt = quantity > 0;
     const isIssue = quantity < 0;
-    const supplier = movement.grnLine?.grn?.supplierDonor?.name ?? movement.grnLine?.grn?.sourceType;
+    const supplier =
+      movement.grnLine?.grn?.supplierDonor?.name ??
+      movement.grnLine?.grn?.sourceType;
     const department = movement.voucher?.issueRequest?.department?.name;
     const unitCost = movement.unitCost != null ? Number(movement.unitCost) : 0;
     const totalPrice = Math.abs(quantity) * unitCost;
     rows.push({
       id: movement.id,
       date: movement.postedAt,
-      reference: movement.grnLine?.grn?.grnNumber ?? movement.voucher?.voucherNumber ?? movement.entryNumber,
+      reference:
+        movement.grnLine?.grn?.grnNumber ??
+        movement.voucher?.voucherNumber ??
+        movement.entryNumber,
       transactionType: movement.type,
       itemDescription: item.description,
-      source: isReceipt ? (supplier ?? "Received stock") : (movement.storageLocation?.store?.name ?? "Store"),
-      destination: isIssue ? (department ?? "Issuing department") : (movement.storageLocation?.store?.name ?? "Store"),
-      provider: supplier ?? "N/A",
-      department: department ?? "N/A",
-      batchNumber: movement.batchNumber ?? movement.batch?.batchNumber ?? "N/A",
+      source: isReceipt
+        ? (supplier ?? "Received stock")
+        : (movement.storageLocation?.store?.name ?? "Store"),
+      destination: isIssue
+        ? (department ?? "Issuing department")
+        : (movement.storageLocation?.store?.name ?? "Store"),
+      provider: supplier ?? null,
+      department: department ?? null,
+      batchNumber: movement.batchNumber ?? movement.batch?.batchNumber ?? null,
       expiryDate: movement.expiryDate ?? movement.batch?.expiryDate,
       unitCost,
       totalPrice,
       receivedQuantity: isReceipt ? quantity : 0,
       issuedQuantity: isIssue ? Math.abs(quantity) : 0,
       balance,
-      location: movement.storageLocation ? `${movement.storageLocation.store?.name ?? "Store"} / Shelf ${movement.storageLocation.shelfNumber ?? movement.shelfCode ?? "N/A"} / Bin ${movement.storageLocation.binNumber ?? movement.binCode ?? "N/A"}` : `Shelf ${movement.shelfCode ?? "N/A"} / Bin ${movement.binCode ?? "N/A"}`,
+      location: movement.storageLocation
+        ? `${movement.storageLocation.store?.name ?? "Store"} / Shelf ${movement.storageLocation.shelfNumber ?? movement.shelfCode ?? null} / Bin ${movement.storageLocation.binNumber ?? movement.binCode ?? null}`
+        : `Shelf ${movement.shelfCode ?? null} / Bin ${movement.binCode ?? null}`,
       actor: movement.actor?.fullName ?? movement.actor?.email ?? "System",
-      remarks: movement.notes ?? ""
+      remarks: movement.notes ?? "",
     });
   }
   return rows;

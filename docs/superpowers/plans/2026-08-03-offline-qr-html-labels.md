@@ -21,11 +21,13 @@
 ### Task 1: Server Offline QR Payload Builder
 
 **Files:**
+
 - Create: `apps/api/src/modules/services/qr-label-template.ts`
 - Modify: `apps/api/src/modules/services/storage.service.ts`
 - Test: `scripts/regression-qr-html-label.ts`
 
 **Interfaces:**
+
 - Produces: `buildOfflineQrLabelDataUrl(payload: QrLabelPayload): string`
 - Consumes: storage assignment payload fields already created in `StorageService.assign`
 
@@ -38,10 +40,12 @@
 ### Task 2: Tauri Local API QR Payload Parity
 
 **Files:**
+
 - Modify: `apps/web/src-tauri/src/local_api.rs`
 - Test: `cargo check` in `apps/web/src-tauri`
 
 **Interfaces:**
+
 - Produces: local QR `payload` as a `data:text/html;charset=utf-8,` URL.
 - Consumes: existing `gs1_json` values and local storage assignment label row.
 
@@ -52,6 +56,7 @@
 ### Task 3: Full Verification
 
 **Files:**
+
 - Verify changed TypeScript and Rust paths.
 
 - [ ] Run `npx.cmd tsx scripts\regression-qr-html-label.ts`.

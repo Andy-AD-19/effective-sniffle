@@ -39,17 +39,27 @@ const defaultSeedPath = "apps/api/prisma/data/mihret-items.seed.json";
 const inputPath = process.argv[2] ?? defaultSeedPath;
 
 function text(value: unknown) {
-  return String(value ?? "").trim().replace(/\s+/g, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function numberValue(value: unknown) {
-  const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+  const parsed = Number(
+    String(value ?? "")
+      .replace(/,/g, "")
+      .trim(),
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function cleanCode(raw: string, fallback: string) {
   if (!raw || /^none$/i.test(raw) || /^n\/a$/i.test(raw)) return fallback;
-  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9._/-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const cleaned = raw
+    .toUpperCase()
+    .replace(/[^A-Z0-9._/-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
   return cleaned || fallback;
 }
 
@@ -72,13 +82,21 @@ function uniqueCode(base: string, usedCodes: Set<string>) {
   return code;
 }
 
-async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source: string; skippedRows?: number }> {
+async function loadSeedItems(
+  path: string,
+): Promise<{ items: SeedItem[]; source: string; skippedRows?: number }> {
   const resolved = resolve(path);
-  if (!existsSync(resolved)) throw new Error(`MIHRET seed source was not found: ${resolved}`);
+  if (!existsSync(resolved))
+    throw new Error(`MIHRET seed source was not found: ${resolved}`);
   if (extname(resolved).toLowerCase() === ".json") {
     const payload = JSON.parse(readFileSync(resolved, "utf8"));
-    if (!Array.isArray(payload.items)) throw new Error("MIHRET seed JSON must contain an items array.");
-    return { items: payload.items, source: resolved, skippedRows: payload.skippedRows };
+    if (!Array.isArray(payload.items))
+      throw new Error("MIHRET seed JSON must contain an items array.");
+    return {
+      items: payload.items,
+      source: resolved,
+      skippedRows: payload.skippedRows,
+    };
   }
 
   const workbook = new ExcelJS.Workbook();
@@ -94,7 +112,11 @@ async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source:
     const row = sheet.getRow(rowNumber);
     const serial = text(row.getCell(1).value);
     const description = text(row.getCell(2).value);
-    if (!/^\d+$/.test(serial) || !description || /^total\b/i.test(description)) {
+    if (
+      !/^\d+$/.test(serial) ||
+      !description ||
+      /^total\b/i.test(description)
+    ) {
       skippedRows += 1;
       continue;
     }
@@ -106,7 +128,9 @@ async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source:
     const sourceOfFund = text(row.getCell(15).value);
     const fallbackCode = `MIHRET-${String(serial).padStart(4, "0")}`;
     const baseCode = cleanCode(partNumber || serial, fallbackCode);
-    const candidateCode = seenBaseCodes.has(baseCode) ? `${baseCode}-${serial}` : baseCode;
+    const candidateCode = seenBaseCodes.has(baseCode)
+      ? `${baseCode}-${serial}`
+      : baseCode;
     const code = uniqueCode(candidateCode, usedCodes);
     const levels = Math.max(finalReportQuantity, physicalBalance, 1);
     seenBaseCodes.add(baseCode);
@@ -122,7 +146,8 @@ async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source:
       unitPrice,
       sourceOfFund: sourceOfFund || null,
       categoryName: "Manual Inventory Import",
-      categoryDescription: "Items imported from the 2018 MIHRET manual inventory workflow",
+      categoryDescription:
+        "Items imported from the 2018 MIHRET manual inventory workflow",
       kind: ItemKind.GENERAL_SUPPLY,
       defaultStoreCode: "MAIN",
       defaultStoreName: "Main Store",
@@ -134,7 +159,11 @@ async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source:
       expiryTrackingRequired: false,
       barcodeRequired: true,
       active: true,
-      needsParameterReview: !sourceOfFund || !partNumber || finalReportQuantity <= 0 || physicalBalance <= 0
+      needsParameterReview:
+        !sourceOfFund ||
+        !partNumber ||
+        finalReportQuantity <= 0 ||
+        physicalBalance <= 0,
     });
   }
   return { items, source: resolved, skippedRows };
@@ -142,8 +171,12 @@ async function loadSeedItems(path: string): Promise<{ items: SeedItem[]; source:
 
 async function main() {
   const { items, source, skippedRows } = await loadSeedItems(inputPath);
-  const existingItems = await prisma.item.findMany({ select: { id: true, code: true } });
-  const existingByCode = new Map(existingItems.map((item) => [item.code, item]));
+  const existingItems = await prisma.item.findMany({
+    select: { id: true, code: true },
+  });
+  const existingByCode = new Map(
+    existingItems.map((item) => [item.code, item]),
+  );
   const categories = new Map<string, { id: string }>();
   const stores = new Map<string, { id: string }>();
   const fundingSources = new Map<string, { id: string }>();
@@ -151,7 +184,9 @@ async function main() {
   const auditRows: any[] = [];
   let imported = 0;
 
-  await prisma.auditLog.deleteMany({ where: { action: "manual_inventory.seed_item" } });
+  await prisma.auditLog.deleteMany({
+    where: { action: "manual_inventory.seed_item" },
+  });
 
   for (const seed of items) {
     const categoryName = seed.categoryName ?? "Manual Inventory Import";
@@ -164,9 +199,11 @@ async function main() {
         update: { active: true },
         create: {
           name: categoryName,
-          description: seed.categoryDescription ?? "Items imported from the 2018 MIHRET manual inventory workflow"
+          description:
+            seed.categoryDescription ??
+            "Items imported from the 2018 MIHRET manual inventory workflow",
         },
-        select: { id: true }
+        select: { id: true },
       });
       categories.set(categoryName, category);
     }
@@ -175,8 +212,11 @@ async function main() {
       store = await prisma.storeLocation.upsert({
         where: { code: storeCode },
         update: { name: seed.defaultStoreName ?? "Main Store", active: true },
-        create: { code: storeCode, name: seed.defaultStoreName ?? "Main Store" },
-        select: { id: true }
+        create: {
+          code: storeCode,
+          name: seed.defaultStoreName ?? "Main Store",
+        },
+        select: { id: true },
       });
       stores.set(storeCode, store);
     }
@@ -186,7 +226,7 @@ async function main() {
         where: { name: fundingName },
         update: { active: true },
         create: { name: fundingName },
-        select: { id: true }
+        select: { id: true },
       });
       fundingSources.set(fundingName, funding);
     }
@@ -196,11 +236,16 @@ async function main() {
         where: { symbol: seed.unit.symbol },
         update: { name: seed.unit.name },
         create: seed.unit,
-        select: { id: true }
+        select: { id: true },
       });
       units.set(seed.unit.symbol, unit);
     }
-    const levels = Math.max(Number(seed.maximumStock ?? 0), Number(seed.finalReportQuantity ?? 0), Number(seed.physicalBalance ?? 0), 1);
+    const levels = Math.max(
+      Number(seed.maximumStock ?? 0),
+      Number(seed.finalReportQuantity ?? 0),
+      Number(seed.physicalBalance ?? 0),
+      1,
+    );
     const data = {
       description: seed.description,
       kind: seed.kind ?? ItemKind.GENERAL_SUPPLY,
@@ -213,8 +258,11 @@ async function main() {
       fundingSourceId: funding.id,
       batchTrackingRequired: Boolean(seed.batchTrackingRequired),
       expiryTrackingRequired: Boolean(seed.expiryTrackingRequired),
-      barcodeRequired: seed.barcodeRequired === undefined ? true : Boolean(seed.barcodeRequired),
-      active: seed.active === undefined ? true : Boolean(seed.active)
+      barcodeRequired:
+        seed.barcodeRequired === undefined
+          ? true
+          : Boolean(seed.barcodeRequired),
+      active: seed.active === undefined ? true : Boolean(seed.active),
     };
     const existing = existingByCode.get(seed.code);
     const item = existing
@@ -235,14 +283,16 @@ async function main() {
         unitPrice: seed.unitPrice,
         finalReportQuantity: seed.finalReportQuantity,
         physicalBalance: seed.physicalBalance,
-        needsParameterReview: seed.needsParameterReview
-      })
+        needsParameterReview: seed.needsParameterReview,
+      }),
     });
     imported += 1;
   }
 
   for (let index = 0; index < auditRows.length; index += 100) {
-    await prisma.auditLog.createMany({ data: auditRows.slice(index, index + 100) });
+    await prisma.auditLog.createMany({
+      data: auditRows.slice(index, index + 100),
+    });
   }
 
   console.log(JSON.stringify({ imported, skippedRows, source }, null, 2));

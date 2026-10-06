@@ -1,0 +1,12 @@
+ token }: { token: string }) {
+	const [rows, setRows] = useState<any[]>([])
+	const [message, setMessage] = useState('')
+	const [countInputs, setCountInputs] = useState<Record<string, number>>({})
+	const [loadingAction, setLoadingAction] = useState('')
+	const load = () => request<any[]>('/physical-counts', token).then(setRows)
+	useEffect(() => {
+		load().catch((err) =>
+			setMessage(errorMessage(err, 'Unable to load physical counts.'))
+		)
+	}, [token])
+	async 

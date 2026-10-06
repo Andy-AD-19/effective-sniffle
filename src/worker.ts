@@ -734,12 +734,17 @@ function enrichItem(item: any): any {
   const fundingSource = fallbackState.fundingSources.find(f => f.id === item.fundingSourceId) || (item.fundingSource && typeof item.fundingSource === "object" ? item.fundingSource : null);
   const defaultLocation = fallbackState.stores.find(s => s.id === item.defaultLocationId) || (item.defaultLocation && typeof item.defaultLocation === "object" ? item.defaultLocation : null);
 
-  // Calculate currentStock from balances
-  const itemBalances = fallbackState.balances.filter(b => b.itemId === validId || b.itemId === item.id || (item.code && b.itemId === item.code));
-  const currentStock = itemBalances.reduce((sum, b) => sum + Number(b.quantityOnHand ?? b.quantityAvailable ?? 0), 0);
+  // Calculate currentStock from ledger
+  const ledger = fallbackState.ledger.filter((l: any) => l.itemId === validId || l.itemId === item.id || (item.code && l.itemId === item.code));
+  let currentStock = 0;
+  for (const m of ledger.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())) {
+    const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.Math.abs(Number(m.quantity || 0)) : 0));
+    const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.Math.abs(Number(m.quantity || 0)) : 0));
+    currentStock += (qtyIn > 0 ? qtyIn : -qtyOut);
+  }
 
   let stockStatus = "NORMAL";
-  if (!itemBalances.length && currentStock === 0) {
+  if (!ledger.length && currentStock === 0) {
     stockStatus = "NOT_RECEIVED";
   } else if (currentStock === 0) {
     stockStatus = "STOCK_OUT";
@@ -833,7 +838,11 @@ function enrichBatch(batch: any): any {
   const item = resolveItemFallback(batch.itemId, batch.item, batch.itemDescription, batch.itemCode);
   return {
     ...batch,
-    item
+    item,
+    barcodes: [
+      ...(batch.barcodeValue ? [{ format: "BARCODE", value: batch.barcodeValue, payload: batch.barcodeValue }] : []),
+      ...(batch.qrCodeValue ? [{ format: "QR_CODE", value: batch.qrCodeValue, payload: batch.qrCodeValue }] : [])
+    ]
   };
 }
 
@@ -843,11 +852,13 @@ function enrichBalance(balance: any): any {
   const batch = fallbackState.batches.find(b => b.id === balance.batchId) || null;
   const store = fallbackState.stores.find(s => s.id === balance.storeId) || fallbackState.stores[0] || null;
   const storageLocation = fallbackState.storageLocations.find(l => l.id === balance.storageLocationId) || null;
+  const enrichedBatch = batch ? enrichBatch(batch) : (balance.batch || { id: balance.batchId, batchNumber: balance.batchNumber || null });
 
   return {
     ...balance,
     item,
-    batch: batch ? enrichBatch(batch) : (balance.batch || { id: balance.batchId, batchNumber: balance.batchNumber || "N/A" }),
+    batch: enrichedBatch,
+    barcodes: enrichedBatch.barcodes || [],
     store: store || { id: balance.storeId, name: "Main Store" },
     storageLocation: storageLocation || {
       id: balance.storageLocationId,
@@ -962,7 +973,7 @@ function enrichAdjustment(adj: any): any {
     quantity: qty,
     quantityDelta: Number(adj.quantityDelta ?? qty),
     item,
-    batch: batch ? enrichBatch(batch) : (adj.batch || { id: adj.batchId, batchNumber: adj.batchNumber || "N/A" }),
+    batch: batch ? enrichBatch(batch) : (adj.batch || { id: adj.batchId, batchNumber: adj.batchNumber || null }),
     requestedBy: user || { id: adj.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
   };
 }
@@ -979,7 +990,7 @@ function enrichDisposal(disp: any): any {
       ...line,
       quantity: Number(line.quantity ?? 1),
       item,
-      batch: batch ? enrichBatch(batch) : (line.batch || { id: line.batchId, batchNumber: line.batchNumber || "N/A" })
+      batch: batch ? enrichBatch(batch) : (line.batch || { id: line.batchId, batchNumber: line.batchNumber || null })
     };
   });
 
@@ -1002,7 +1013,7 @@ function enrichDisposal(disp: any): any {
   return {
     ...disp,
     item: topItem,
-    batch: batch ? enrichBatch(batch) : (disp.batch || { id: disp.batchId, batchNumber: disp.batchNumber || "N/A" }),
+    batch: batch ? enrichBatch(batch) : (disp.batch || { id: disp.batchId, batchNumber: disp.batchNumber || null }),
     lines: effectiveLines,
     disposalReason: reason || (disp.reasonId ? { id: disp.reasonId, code: disp.reasonId, description: disp.reason || disp.reasonId } : null),
     requestedBy: user || { id: disp.createdById || "usr-admin", fullName: user?.fullName || "Inventory Officer" }
@@ -1032,14 +1043,19 @@ function enrichReturn(ret: any): any {
 function enrichLedgerEntry(entry: any): any {
   if (!entry) return entry;
   const item = resolveItemFallback(entry.itemId, entry.item, entry.itemDescription, entry.itemCode);
-  const batch = entry.batchId ? fallbackState.batches.find(b => b.id === entry.batchId) : null;
+  const batch = entry.batchId ? fallbackState.batches.find((b: any) => b.id === entry.batchId) : null;
+  const quantity = Math.Math.abs(Number(entry.quantityIn || entry.quantityOut || entry.quantity || 0));
+  const unitCost = Number(entry.unitCost ?? entry.unitPrice ?? batch?.unitCost ?? item?.unitPrice ?? item?.unitCost ?? 0);
   return {
     ...entry,
     item,
-    batchNumber: entry.batchNumber || batch?.batchNumber || (entry.referenceType === 'ALLOCATION' ? entry.referenceId : "N/A"),
-    unitCost: entry.unitCost ?? entry.unitPrice ?? batch?.unitCost ?? 0,
-    totalPrice: (Number(entry.quantityIn || 0) + Number(entry.quantityOut || 0)) * Number(entry.unitCost ?? entry.unitPrice ?? batch?.unitCost ?? 0),
-    expiryDate: entry.expiryDate || batch?.expiryDate
+    batchNumber: entry.batchNumber || batch?.batchNumber || (entry.referenceType === 'ALLOCATION' ? entry.referenceId : null),
+    unitCost: unitCost,
+    unitPrice: unitCost,
+    totalPrice: quantity * unitCost,
+    expiryDate: entry.expiryDate || batch?.expiryDate,
+    category: item?.category,
+    unit: item?.unit
   };
 }
 
@@ -1211,7 +1227,7 @@ async function getOrFetchAdjustment(id: string, env: Env): Promise<any> {
         const fetched = {
           ...dbAdj,
           status: dbAdj.approvedById ? "APPROVED" : "PENDING_APPROVAL",
-          quantity: Math.abs(Number(dbAdj.quantityDelta || 0))
+          quantity: Math.Math.abs(Number(dbAdj.quantityDelta || 0))
         };
         fallbackState.adjustments.unshift(fetched);
         adj = fetched;
@@ -1331,6 +1347,14 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             }
           }
         }
+        const dbCats = await env.DB.prepare("SELECT * FROM Category").all<any>();
+        if (dbCats.results && dbCats.results.length > 0) fallbackState.categories = dbCats.results;
+        const dbUnits = await env.DB.prepare("SELECT * FROM UnitOfMeasure").all<any>();
+        if (dbUnits.results && dbUnits.results.length > 0) fallbackState.unitsOfMeasure = dbUnits.results;
+        const dbLedger = await env.DB.prepare("SELECT * FROM StockLedgerEntry").all<any>();
+        if (dbLedger.results && dbLedger.results.length > 0) fallbackState.ledger = dbLedger.results;
+        const dbBals = await env.DB.prepare("SELECT * FROM StockLocationBalance").all<any>();
+        if (dbBals.results && dbBals.results.length > 0) fallbackState.balances = dbBals.results;
       } catch (e) { console.error("[D1 Error]", e); }
     }
 
@@ -1402,6 +1426,47 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path === "/auth/me" && method === "GET") {
       if (!user) return jsonResponse({ message: "Unauthorized" }, 401);
       return jsonResponse(user);
+    }
+
+    // 3.5 App Settings
+    if (path === "/settings" && method === "GET") {
+      if (!user) return jsonResponse({ message: "Unauthorized" }, 401);
+      if (env.DB) {
+        try {
+          const res = await env.DB.prepare("SELECT * FROM AppSetting").all<any>();
+          const settings: Record<string, string> = {};
+          for (const row of res.results || []) {
+            settings[row.key] = row.value;
+          }
+          return jsonResponse(settings);
+        } catch (e) {
+          console.error("[D1 Error]", e);
+        }
+      }
+      return jsonResponse({});
+    }
+
+    if (path === "/settings" && method === "PATCH") {
+      if (!user) return jsonResponse({ message: "Unauthorized" }, 401);
+      if (user.role !== "SYSTEM_ADMINISTRATOR") {
+        return jsonResponse({ message: "Forbidden" }, 403);
+      }
+      try {
+        const body = (await request.json()) as Record<string, string>;
+        if (env.DB) {
+          const stmts = [];
+          for (const [k, v] of Object.entries(body)) {
+            stmts.push(env.DB.prepare("INSERT OR REPLACE INTO AppSetting (key, value, updatedBy, updatedAt) VALUES (?, ?, ?, datetime('now'))").bind(k, String(v), user.id));
+          }
+          if (stmts.length > 0) {
+            await env.DB.batch(stmts);
+          }
+          await recordAudit(env, fallbackState, user, "UPDATE", "Setting", "app-settings", `Updated settings: ${Object.keys(body).join(", ")}`);
+        }
+        return jsonResponse({ success: true });
+      } catch (e) {
+        return jsonResponse({ message: "Bad Request", error: String(e) }, 400);
+      }
     }
 
     // 4. Master Data (Aggregate)
@@ -2246,9 +2311,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           itemDescription: enriched.description,
           source: "System",
           destination: enriched.defaultLocation?.name ?? "Main Store",
-          provider: "N/A",
-          department: "N/A",
-          batchNumber: "N/A",
+          provider: null,
+          department: null,
+          batchNumber: null,
           expiryDate: null,
           unitCost: null,
           totalPrice: 0,
@@ -2260,8 +2325,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       ];
 
       for (const m of movements) {
-        const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.abs(Number(m.quantity || 0)) : 0));
-        const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+        const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.Math.abs(Number(m.quantity || 0)) : 0));
+        const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.Math.abs(Number(m.quantity || 0)) : 0));
         const net = qtyIn > 0 ? qtyIn : -qtyOut;
         balance += net;
         const unitCost = m.unitCost ? Number(m.unitCost) : null;
@@ -2273,9 +2338,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           itemDescription: enriched.description,
           source: qtyIn > 0 ? "Received stock" : "Store",
           destination: qtyOut > 0 ? "Issuing department" : "Store",
-          provider: "N/A",
-          department: "N/A",
-          batchNumber: m.batchNumber || "N/A",
+          provider: null,
+          department: null,
+          batchNumber: m.batchNumber || null,
           expiryDate: m.expiryDate || null,
           unitCost,
           totalPrice: unitCost ? Math.abs(net) * unitCost : null,
@@ -2447,8 +2512,12 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
       if (env.DB) {
         try {
-          await env.DB.prepare("UPDATE StockBatch SET remainingQuantity = ?, status = ?, updatedAt = datetime('now') WHERE id = ?")
-            .bind(batch.remainingQuantity, batch.status, id).run();
+          const origin = new URL(request.url).origin;
+          const qrUrl = `${origin}/scan?item=${encodeURIComponent(batch.item?.code || batch.itemId)}&batch=${encodeURIComponent(batch.batchNumber || "")}&received=${encodeURIComponent(batch.receivedDate ? String(batch.receivedDate).slice(0,10) : "")}&expiry=${encodeURIComponent(batch.expiryDate ? String(batch.expiryDate).slice(0,10) : "")}&purpose=`;
+          batch.qrCodeValue = qrUrl;
+          batch.barcodeValue = batch.batchNumber || "";
+          await env.DB.prepare("UPDATE StockBatch SET remainingQuantity = ?, status = ?, qrCodeValue = ?, barcodeValue = ?, updatedAt = datetime('now') WHERE id = ?")
+            .bind(batch.remainingQuantity, batch.status, qrUrl, batch.barcodeValue, id).run();
 
           await env.DB.prepare(
             `INSERT INTO StockLocationBalance (id, itemId, batchId, storeId, storageLocationId, quantityOnHand, quantityReserved, quantityAvailable, createdAt, updatedAt)
@@ -2471,33 +2540,53 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     if (path === "/location-balances" && method === "GET") {
       const barcode = url.searchParams.get("barcode");
+      let list: any[] = [];
       if (env.DB) {
         try {
           const res = await env.DB.prepare("SELECT * FROM StockLocationBalance").all<any>();
-          if (res.results && res.results.length > 0) {
-            let list = res.results;
-            if (barcode) {
-              const q = barcode.toLowerCase();
-              list = list.filter((b: any) => 
-                (b.batchId && b.batchId.toLowerCase().includes(q)) ||
-                (b.storageLocationId && b.storageLocationId.toLowerCase().includes(q)) ||
-                (b.itemId && b.itemId.toLowerCase().includes(q))
-              );
-            }
-            return jsonResponse(list.map(enrichBalance));
-          }
+          if (res.results) list = res.results;
         } catch (e) { console.error("[D1 Error]", e); }
       }
-      let list = fallbackState.balances;
+      if (list.length === 0) list = fallbackState.balances;
+      
+      list = list.map(enrichBalance);
+      
       if (barcode) {
-        const q = barcode.toLowerCase();
-        list = list.filter(b => 
-          (b.batchId && b.batchId.toLowerCase().includes(q)) ||
-          (b.storageLocationId && b.storageLocationId.toLowerCase().includes(q)) ||
-          (b.itemId && b.itemId.toLowerCase().includes(q))
-        );
+        let q = barcode;
+        let scanItem = "";
+          let scanBatch = "";
+          if (q.includes("/scan?item=")) {
+            const mItem = q.match(/item=([^&]+)/);
+            if (mItem) scanItem = decodeURIComponent(mItem[1]).toLowerCase();
+            const mBatch = q.match(/batch=([^&]+)/);
+            if (mBatch) scanBatch = decodeURIComponent(mBatch[1]).toLowerCase();
+          } else {
+            scanItem = q.toLowerCase();
+          }
+
+          list = list.filter(b => {
+            if (scanItem && scanBatch) {
+              const bItem = (b.item?.code || b.itemId || "").toLowerCase();
+              const bBatch = (b.batch?.batchNumber || b.batchId || "").toLowerCase();
+              return bItem.includes(scanItem) && bBatch.includes(scanBatch);
+            }
+            const qq = scanItem;
+            const batchNo = b.batch?.batchNumber || "";
+            const itemCode = b.item?.code || "";
+            const itemGtin = b.item?.gtin || "";
+            const qrVal = b.batch?.qrCodeValue || "";
+            const barVal = b.batch?.barcodeValue || "";
+            return (b.batchId && b.batchId.toLowerCase().includes(qq)) ||
+              (b.storageLocationId && b.storageLocationId.toLowerCase().includes(qq)) ||
+              (b.itemId && b.itemId.toLowerCase().includes(qq)) ||
+              (batchNo.toLowerCase().includes(qq)) ||
+              (itemCode.toLowerCase().includes(qq)) ||
+              (itemGtin.toLowerCase().includes(qq)) ||
+              (qrVal.toLowerCase().includes(qq)) ||
+              (barVal.toLowerCase().includes(qq));
+          });
       }
-      return jsonResponse(list.map(enrichBalance));
+      return jsonResponse(list);
     }
 
     if (path === "/ledger/balances" && method === "GET") {
@@ -2880,7 +2969,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
                  WHERE b.itemId = ? AND b.quantityOnHand > 0
                `).bind(line.itemId).all<any>();
                allocations = (balances.results || []).map((b: any) => ({
-                  batchNumber: b.batchNumber || b.batchId || "N/A",
+                  batchNumber: b.batchNumber || b.batchId || null,
                   storeName: b.storeName || "Main Store",
                   shelfCode: b.storageLocationId || "-",
                   binCode: "-",
@@ -2890,7 +2979,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             } catch (e) { console.error("[D1 Error]", e); }
          } else {
             allocations = fallbackState.balances.filter(b => b.itemId === line.itemId && Number(b.quantityOnHand) > 0).map(b => ({
-               batchNumber: b.batchId || "N/A",
+               batchNumber: b.batchId || null,
                storeName: "Main Store",
                shelfCode: b.storageLocationId || "-",
                binCode: "-",
@@ -2971,7 +3060,8 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
              .reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
         }
 
-        const balanceAfter = Math.max(0, currentBalance - issuedQty);
+        if (issuedQty > currentBalance) return jsonResponse({ message: `Cannot issue ${issuedQty} of ${line.item?.name || line.itemId}, only ${currentBalance} available.` }, 400);
+          const balanceAfter = currentBalance - issuedQty;
         
         let linePrice = Number(line.unitPrice || line.item?.unitPrice || line.item?.unitCost || 0);
 
@@ -3081,7 +3171,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     if (path === "/returns" && method === "GET") {
       if (env.DB) {
         try {
-          const rets = await env.DB.prepare("SELECT * FROM ItemReturn ORDER BY createdAt DESC").all<any>();
+          const rets = user?.role === 'DEPARTMENT_USER' ? await env.DB.prepare("SELECT * FROM ItemReturn WHERE departmentId = ? ORDER BY createdAt DESC").bind(user.departmentId).all<any>() : await env.DB.prepare("SELECT * FROM ItemReturn ORDER BY createdAt DESC").all<any>();
           if (rets.results && rets.results.length > 0) {
             const lines = await env.DB.prepare("SELECT * FROM ItemReturnLine").all<any>();
             const list = rets.results.map((r: any) => ({
@@ -3115,6 +3205,11 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             `INSERT INTO ItemReturn (id, returnNumber, departmentId, returnedById, reason, status, createdAt, updatedAt)
              VALUES (?, ?, ?, ?, ?, 'PENDING_INSPECTION', datetime('now'), datetime('now'))`
           ).bind(ret.id, ret.returnNumber, ret.departmentId, user?.id || "usr-admin", ret.reason).run();
+          for (const line of (body.lines || [])) {
+            await env.DB.prepare(
+              "INSERT INTO ItemReturnLine (id, returnId, itemId, batchId, quantityReturned) VALUES (?, ?, ?, ?, ?)"
+            ).bind(line.id || uid("retl"), ret.id, line.itemId, line.batchId || null, line.quantityReturned || line.quantity || 0).run();
+          }
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
@@ -3169,7 +3264,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
           const pendingAdjustments = (adjRes.results || []).map((a: any) => ({
             ...a,
             status: "PENDING_APPROVAL",
-            quantity: Math.abs(Number(a.quantityDelta || 0))
+            quantity: Math.Math.abs(Number(a.quantityDelta || 0))
           })).map(enrichAdjustment);
 
           const pendingDisposals = (dispRes.results || []).map(enrichDisposal);
@@ -3240,54 +3335,112 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     }
 
     if (path === "/physical-counts" && method === "POST") {
-      let body: any;
-      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
-      const count = {
-        id: uid("cnt"),
-        countNumber: `CNT-${Date.now().toString().slice(-6)}`,
-        cycleType: body.cycleType || "ANNUAL",
-        locationId: body.locationId,
-        categoryId: body.categoryId,
-        status: "OPEN",
-        openedAt: new Date().toISOString(),
-        createdById: user?.id || "usr-admin",
-        lines: []
-      };
-      fallbackState.counts.unshift(count);
+        let body: any;
+        try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
+        
+        let targetBalances = fallbackState.balances;
+        if (body.locationId) targetBalances = targetBalances.filter(b => b.storeId === body.locationId);
+        
+        const lines = targetBalances.map(b => {
+          const item = fallbackState.items.find(i => i.id === b.itemId || (i.code && i.code === b.itemId));
+          if (body.categoryId && item && item.categoryId !== body.categoryId) return null;
+          return {
+            id: uid("cntline"),
+            countId: "PENDING",
+            itemId: b.itemId,
+            batchId: b.batchId,
+            storageLocationId: b.storageLocationId,
+            systemQuantity: Number(b.quantityOnHand || 0),
+            countedQuantity: 0,
+            variance: 0,
+            item: enrichItem(item)
+          };
+        }).filter(Boolean);
 
-      if (env.DB) {
-        try {
-          await env.DB.prepare(
-            `INSERT INTO PhysicalCount (id, countNumber, storeId, status, conductedById, createdAt, updatedAt)
-             VALUES (?, ?, ?, 'OPEN', ?, datetime('now'), datetime('now'))`
-          ).bind(count.id, count.countNumber, count.locationId || "store-main", count.createdById).run();
-        } catch (e) { console.error("[D1 Error]", e); }
+        const count = {
+          id: uid("cnt"),
+          countNumber: `CNT-${Date.now().toString().slice(-6)}`,
+          cycleType: body.cycleType || "ANNUAL",
+          locationId: body.locationId,
+          categoryId: body.categoryId,
+          status: "OPEN",
+          openedAt: new Date().toISOString(),
+          createdById: user?.id || "usr-admin",
+          lines: lines
+        };
+        fallbackState.counts.unshift(count);
+
+        if (env.DB) {
+          try {
+            await env.DB.prepare(
+              `INSERT INTO PhysicalCount (id, countNumber, storeId, status, conductedById, createdAt, updatedAt)
+               VALUES (?, ?, ?, 'OPEN', ?, datetime('now'), datetime('now'))`
+            ).bind(count.id, count.countNumber, count.locationId || "store-main", count.createdById).run();
+          } catch (e) { console.error("[D1 Error]", e); }
+        }
+
+        await recordAudit(env, fallbackState, user, "count.open", "PhysicalCount", count.id);
+        return jsonResponse(count, 201);
       }
-
-      await recordAudit(env, fallbackState, user, "count.open", "PhysicalCount", count.id);
-      return jsonResponse(count, 201);
-    }
 
     if (path.startsWith("/physical-counts/") && path.endsWith("/submit") && method === "POST") {
-      const id = getPathSegment(path, 1);
-      let body: any;
-      try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
-      const count = fallbackState.counts.find(c => c.id === id);
-      if (!count) return jsonResponse({ message: "Physical count not found" }, 404);
-      count.status = "COMPLETED";
-      count.submittedAt = new Date().toISOString();
-      count.lines = body.lines || count.lines;
-      await recordAudit(env, fallbackState, user, "count.submit", "PhysicalCount", count.id);
+        const id = getPathSegment(path, 1);
+        let body: any;
+        try { body = await request.json(); } catch { return jsonResponse({ message: "Invalid JSON" }, 400); }
+        const count = fallbackState.counts.find(c => c.id === id);
+        if (!count) return jsonResponse({ message: "Physical count not found" }, 404);
+        
+        count.lines = body.lines || count.lines;
+        let hasVariance = false;
+        
+        for (const line of count.lines) {
+          const sys = Number(line.systemQuantity || 0);
+          const counted = Number(line.countedQuantity || 0);
+          const variance = counted - sys;
+          line.variance = variance;
+          if (variance !== 0) {
+            hasVariance = true;
+            const adj = {
+              id: uid("adj"),
+              adjustmentNumber: `ADJ-${Date.now().toString().slice(-6)}`,
+              itemId: line.itemId,
+              batchId: line.batchId || null,
+              storeId: count.locationId || "store-main",
+              type: variance > 0 ? "GAIN" : "LOSS",
+              quantity: Math.abs(variance),
+              quantityDelta: variance,
+              reason: "Physical count variance",
+              status: "PENDING_APPROVAL",
+              createdById: user?.id || "usr-admin",
+              createdAt: new Date().toISOString(),
+              referenceType: "PHYSICAL_COUNT",
+              referenceId: count.countNumber || count.id
+            };
+            fallbackState.adjustments.unshift(adj);
+            if (env.DB) {
+              try {
+                await env.DB.prepare(
+                  `INSERT INTO StockAdjustment (id, adjustmentNumber, itemId, batchId, storeId, quantityDelta, reason, status, createdById, createdAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, datetime('now'))`
+                ).bind(adj.id, adj.adjustmentNumber, adj.itemId, adj.batchId, adj.storeId, adj.quantityDelta, adj.reason, adj.createdById).run();
+              } catch (e) {}
+            }
+          }
+        }
+        
+        count.status = hasVariance ? "PENDING_RECONCILIATION" : "RECONCILED";
+        count.submittedAt = new Date().toISOString();
+        await recordAudit(env, fallbackState, user, "count.submit", "PhysicalCount", count.id);
 
-      if (env.DB) {
-        try {
-          await env.DB.prepare("UPDATE PhysicalCount SET status = 'COMPLETED', updatedAt = datetime('now') WHERE id = ?")
-            .bind(id).run();
-        } catch (e) { console.error("[D1 Error]", e); }
+        if (env.DB) {
+          try {
+            await env.DB.prepare("UPDATE PhysicalCount SET status = ?, updatedAt = datetime('now') WHERE id = ?")
+              .bind(count.status, id).run();
+          } catch (e) { console.error("[D1 Error]", e); }
+        }
+
+        return jsonResponse(count);
       }
-
-      return jsonResponse(count);
-    }
 
     if (path === "/adjustments" && method === "GET") {
       if (env.DB) {
@@ -3297,7 +3450,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
             return jsonResponse(res.results.map((a: any) => ({
               ...a,
               status: a.approvedById ? "APPROVED" : "PENDING_APPROVAL",
-              quantity: Math.abs(Number(a.quantityDelta || 0))
+              quantity: Math.Math.abs(Number(a.quantityDelta || 0))
             })).map(enrichAdjustment));
           }
         } catch (e) { console.error("[D1 Error]", e); }
@@ -3315,7 +3468,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
         batchId: body.batchId || null,
         storeId: body.storeId || "store-main",
         type: body.type || (Number(body.discrepancy || body.quantity || 0) >= 0 ? "GAIN" : "LOSS"),
-        quantity: Math.abs(Number(body.discrepancy ?? body.quantity ?? 0)),
+        quantity: Math.Math.abs(Number(body.discrepancy ?? body.quantity ?? 0)),
         quantityDelta: Number(body.discrepancy ?? body.quantityDelta ?? body.quantity ?? 0),
         reason: body.reason || "Physical count variance",
         status: "PENDING_APPROVAL",
@@ -3341,11 +3494,38 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const adj = await getOrFetchAdjustment(id, env);
       if (!adj) return jsonResponse({ message: "Adjustment not found" }, 404);
       adj.status = "APPROVED";
+      
+      const qty = Number(adj.quantityDelta || adj.quantity || 0);
 
+      const led = {
+        id: uid("led"),
+        itemId: adj.itemId,
+        batchId: adj.batchId,
+        storeId: adj.storeId,
+        storageLocationId: adj.storageLocationId,
+        entryType: qty > 0 ? "RECEIPT" : "ISSUE",
+        quantityIn: qty > 0 ? qty : 0,
+        quantityOut: qty < 0 ? Math.abs(qty) : 0,
+        balanceAfter: 0,
+        unitPrice: 0,
+        referenceType: "ADJUSTMENT",
+        referenceId: adj.adjustmentNumber || adj.id,
+        createdAt: new Date().toISOString()
+      };
+      fallbackState.ledger.unshift(led);
+      
       if (env.DB) {
         try {
-          await env.DB.prepare("UPDATE StockAdjustment SET approvedById = ? WHERE id = ?")
+          await env.DB.prepare("UPDATE StockAdjustment SET approvedById = ?, status = 'APPROVED' WHERE id = ?")
             .bind(user?.id || "usr-admin", adj.id).run();
+          
+          await env.DB.prepare(
+            `INSERT INTO StockLedgerEntry (id, itemId, batchId, storeId, storageLocationId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ADJUSTMENT', ?, datetime('now'))`
+          ).bind(led.id, led.itemId, led.batchId, led.storeId, led.storageLocationId, led.entryType, led.quantityIn, led.quantityOut, led.referenceId).run();
+          
+          await env.DB.prepare("UPDATE StockLocationBalance SET quantityOnHand = quantityOnHand + ?, updatedAt = datetime('now') WHERE itemId = ? AND batchId = ? AND storageLocationId = ?")
+            .bind(qty, led.itemId, led.batchId, led.storageLocationId).run();
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
@@ -3397,9 +3577,9 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (env.DB) {
         try {
           await env.DB.prepare(
-            `INSERT INTO StockDisposal (id, disposalNumber, itemId, batchId, quantity, reasonId, status, createdAt, updatedAt)
-             VALUES (?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', datetime('now'), datetime('now'))`
-          ).bind(disp.id, disp.disposalNumber, disp.itemId || (disp.lines?.[0]?.itemId || "item-screw"), disp.batchId || null, Number(disp.quantity || disp.lines?.[0]?.quantity || 1), disp.reasonId || "disp-01").run();
+            `INSERT INTO StockDisposal (id, disposalNumber, itemId, batchId, quantity, reasonId, disposalMethod, status, createdAt, updatedAt)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING_APPROVAL', datetime('now'), datetime('now'))`
+          ).bind(disp.id, disp.disposalNumber, disp.itemId || (disp.lines?.[0]?.itemId || "item-screw"), disp.batchId || null, Number(disp.quantity || disp.lines?.[0]?.quantity || 1), disp.reasonId || "disp-01", disp.disposalMethod || null).run();
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
@@ -3448,10 +3628,46 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       if (!disp) return jsonResponse({ message: "Disposal request not found" }, 404);
       disp.status = "DISPOSED";
       await recordAudit(env, fallbackState, user, "disposal.dispose", "StockDisposal", disp.id);
+      
+      const lines = disp.lines || [];
+      for (const line of lines) {
+        const qty = Number(line.quantity || 0);
+        if (qty <= 0) continue;
+        const led = {
+          id: uid("led"),
+          itemId: line.itemId,
+          batchId: line.batchId,
+          storeId: disp.storeId || "store-gen",
+          storageLocationId: line.storageLocationId || "loc-gen",
+          entryType: "ISSUE",
+          quantityIn: 0,
+          quantityOut: qty,
+          balanceAfter: 0,
+          unitPrice: 0,
+          referenceType: "DISPOSAL",
+          referenceId: disp.disposalNumber || disp.id,
+          createdAt: new Date().toISOString()
+        };
+        fallbackState.ledger.unshift(led);
+      }
+
       if (env.DB) {
         try {
           await env.DB.prepare("UPDATE StockDisposal SET status = 'DISPOSED', updatedAt = datetime('now') WHERE id = ?")
             .bind(disp.id).run();
+          
+          for (const line of lines) {
+            const qty = Number(line.quantity || 0);
+            if (qty <= 0) continue;
+            
+            await env.DB.prepare(
+              `INSERT INTO StockLedgerEntry (id, itemId, batchId, storeId, storageLocationId, entryType, quantityIn, quantityOut, balanceAfter, unitPrice, referenceType, referenceId, createdAt)
+               VALUES (?, ?, ?, ?, ?, 'ISSUE', 0, ?, 0, 0, 'DISPOSAL', ?, datetime('now'))`
+            ).bind(uid("led"), line.itemId, line.batchId, disp.storeId || "store-gen", line.storageLocationId || "loc-gen", qty, disp.disposalNumber || disp.id).run();
+            
+            await env.DB.prepare("UPDATE StockLocationBalance SET quantityOnHand = quantityOnHand - ?, updatedAt = datetime('now') WHERE itemId = ? AND batchId = ?")
+              .bind(qty, line.itemId, line.batchId).run();
+          }
         } catch (e) { console.error("[D1 Error]", e); }
       }
 
@@ -3460,8 +3676,24 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 14. Audit Logs & Notifications
     if (path === "/audit-logs" && method === "GET") {
-      return jsonResponse(fallbackState.auditLogs);
-    }
+        let list = fallbackState.auditLogs;
+        if (env.DB) {
+          try {
+            const res = await env.DB.prepare("SELECT * FROM AuditLog ORDER BY createdAt DESC").all<any>();
+            if (res.results && res.results.length > 0) list = res.results;
+          } catch (e) { console.error("[D1 Error]", e); }
+        }
+        const enriched = list.map(log => {
+          const u = fallbackState.users.find(u => u.id === (log.actorId || log.userId));
+          return {
+            ...log,
+            actorId: log.actorId || log.userId,
+            entityType: log.entityType || log.entity,
+            actor: u ? { fullName: u.fullName, email: u.email } : null
+          };
+        });
+        return jsonResponse(enriched);
+      }
 
     if (path === "/notifications" && method === "GET") {
       return jsonResponse(fallbackState.notifications);
@@ -3473,7 +3705,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       const balances = fallbackState.balances;
       const batches = fallbackState.batches;
       const receipts = fallbackState.receipts;
-      const issues = fallbackState.issues;
+      const issues = user?.role === 'DEPARTMENT_USER' ? fallbackState.issues.filter((i: any) => i.departmentId === user.departmentId) : fallbackState.issues;
 
       // Current stock & Available stock across all balances
       const currentStock = balances.reduce((sum, b) => sum + Number(b.quantityOnHand || 0), 0);
@@ -3621,50 +3853,87 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
 
     // 16. Reports (JSON, Excel, PDF)
     if (path.startsWith("/reports/")) {
+      const url = new URL(request.url);
       const cleanPath = path.replace(/^\/reports\//, "");
       const isXlsx = cleanPath.endsWith(".xlsx");
       const isPdf = cleanPath.endsWith(".pdf");
       const type = cleanPath.replace(/\.(xlsx|pdf)$/, "");
 
-      // Generate structured report rows
-      const reportRows = fallbackState.items.map((i, idx) => {
-        const cat = fallbackState.categories.find(c => c.id === i.categoryId)?.name || "General";
-        const unit = fallbackState.unitsOfMeasure.find(u => u.id === i.unitId)?.name || "Unit";
-        const fund = fallbackState.fundingSources.find(f => f.id === i.fundingSourceId)?.name || "Treasury";
-        const bal = fallbackState.balances.find(b => b.itemId === i.id)?.quantityOnHand || 100;
-        return {
-          id: `rep-${idx + 1}`,
-          code: i.code,
-          description: i.description,
-          category: cat,
-          unit,
-          fundingSource: fund,
-          quantityOnHand: bal,
-          reorderLevel: i.reorderLevel || 10,
-          minimumStock: i.minimumStock || 5,
-          maximumStock: i.maximumStock || 500,
-          unitCost: 10.0,
-          totalValue: bal * 10.0,
-          status: bal > (i.reorderLevel || 10) ? "ADEQUATE" : "LOW_STOCK",
-          createdAt: i.createdAt
-        };
-      });
+      const dateFrom = url.searchParams.get("dateFrom");
+      const dateTo = url.searchParams.get("dateTo");
+
+      const filterByDate = (dateStr) => {
+        if (!dateStr) return true;
+        const d = new Date(dateStr);
+        if (dateFrom && d < new Date(dateFrom)) return false;
+        if (dateTo) {
+          const dt = new Date(dateTo);
+          dt.setHours(23, 59, 59, 999);
+          if (d > dt) return false;
+        }
+        return true;
+      };
+
+      let reportRows = [];
+      if (env.DB) {
+        try {
+          if (type === "receipt" || type === "grn") {
+            const notes = await env.DB.prepare("SELECT * FROM GoodsReceivingNote ORDER BY createdAt DESC").all<any>();
+            reportRows = (notes.results || []).filter((r: any) => filterByDate(r.createdAt || r.receivedAt)).map(enrichReceipt);
+          } else if (type === "issue" || type === "store-issue-voucher") {
+            const issues = user?.role === 'DEPARTMENT_USER' ? await env.DB.prepare("SELECT * FROM StockIssueVoucher WHERE departmentId = ? ORDER BY createdAt DESC").bind(user.departmentId).all<any>() : await env.DB.prepare("SELECT * FROM StockIssueVoucher ORDER BY createdAt DESC").all<any>();
+            reportRows = (issues.results || []).filter((r: any) => filterByDate(r.createdAt)).map(enrichIssue);
+          } else if (type === "physical-count") {
+            const counts = await env.DB.prepare("SELECT * FROM PhysicalCount ORDER BY createdAt DESC").all<any>();
+            reportRows = (counts.results || []).filter((r: any) => filterByDate(r.createdAt));
+          } else if (type === "disposal") {
+            const disposals = await env.DB.prepare("SELECT * FROM StockDisposal ORDER BY createdAt DESC").all<any>();
+            reportRows = (disposals.results || []).filter((r: any) => filterByDate(r.createdAt)).map(enrichDisposal);
+          } else {
+            const itemsRes = await env.DB.prepare("SELECT * FROM Item").all<any>();
+            const ledgerRes = await env.DB.prepare("SELECT * FROM StockLedgerEntry ORDER BY createdAt ASC").all<any>();
+            const allLedger = ledgerRes.results || [];
+            reportRows = (itemsRes.results || []).map((i: any) => {
+              const itemLedger = allLedger.filter((l: any) => l.itemId === i.id || l.itemId === i.code).filter((r: any) => filterByDate(r.createdAt));
+              let currentStock = 0;
+              for (const m of itemLedger) {
+                const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+                const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+                currentStock += (qtyIn > 0 ? qtyIn : -qtyOut);
+              }
+              const enriched = enrichItem(i);
+              return { ...enriched, currentStock };
+            });
+          }
+        } catch(e) {}
+      } 
+      if (reportRows.length === 0) {
+        if (type === "receipt" || type === "grn") {
+          reportRows = fallbackState.receipts.map(enrichReceipt).filter((r: any) => filterByDate(r.createdAt || r.receivedAt));
+        } else if (type === "issue" || type === "store-issue-voucher") {
+          reportRows = fallbackState.issues.map(enrichIssue).filter((r: any) => filterByDate(r.createdAt));
+        } else if (type === "physical-count") {
+          reportRows = (fallbackState.counts || []).filter((r: any) => filterByDate(r.createdAt));
+        } else if (type === "disposal") {
+          reportRows = fallbackState.disposals.map(enrichDisposal).filter((r: any) => filterByDate(r.createdAt));
+        } else {
+          reportRows = fallbackState.items.map((i: any) => {
+            const itemLedger = fallbackState.ledger.filter((l: any) => l.itemId === i.id || (i.code && l.itemId === i.code)).filter((r: any) => filterByDate(r.createdAt));
+            let currentStock = 0;
+            for (const m of itemLedger) {
+              const qtyIn = Number(m.quantityIn || (m.entryType === "RECEIPT" || m.quantity > 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+              const qtyOut = Number(m.quantityOut || (m.entryType === "ISSUE" || m.quantity < 0 ? Math.abs(Number(m.quantity || 0)) : 0));
+              currentStock += (qtyIn > 0 ? qtyIn : -qtyOut);
+            }
+            const enriched = enrichItem(i);
+            return { ...enriched, currentStock };
+          });
+        }
+      }
 
       if (isXlsx) {
-        // Return CSV representation disguised with xlsx headers for standard web client download
-        const headers = ["Item Code", "Description", "Category", "Unit", "Quantity On Hand", "Reorder Level", "Status"];
-        const csvRows = [headers.join(",")];
-        for (const row of reportRows) {
-          csvRows.push([
-            `"${row.code}"`,
-            `"${row.description.replace(/"/g, '""')}"`,
-            `"${row.category}"`,
-            `"${row.unit}"`,
-            row.quantityOnHand,
-            row.reorderLevel,
-            `"${row.status}"`
-          ].join(","));
-        }
+        const csvRows = ["Code,Data\n"];
+        reportRows.forEach(r => csvRows.push(JSON.stringify(r.id || r.code)));
         return new Response(csvRows.join("\n"), {
           status: 200,
           headers: {
@@ -3676,9 +3945,7 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
       }
 
       if (isPdf) {
-        const pdfText = `FMOH INVENTORY REPORT\nType: ${type}\nGenerated: ${new Date().toISOString()}\n\n` +
-          reportRows.map(r => `${r.code} | ${r.description} | Stock: ${r.quantityOnHand}`).join("\n");
-        return new Response(pdfText, {
+        return new Response("FMOH INVENTORY REPORT\n" + JSON.stringify(reportRows.map(r => r.id || r.code)), {
           status: 200,
           headers: {
             "Content-Type": "application/pdf",
@@ -3719,3 +3986,4 @@ async function handleApiRequest(request: Request, env: Env, url: URL): Promise<R
     return jsonResponse({ message: err?.message || "Internal server error" }, 500);
   }
 }
+

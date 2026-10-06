@@ -2164,10 +2164,12 @@ function PieChartCard({
 	title,
 	rows,
 	icon: Icon = BarChart3,
+	compactEmpty = false
 }: {
 	title: string
 	rows: { name: string; value: number }[]
 	icon?: React.ComponentType<{ size?: number; className?: string }>
+	compactEmpty?: boolean
 }) {
 	const total = rows.reduce((sum, row) => sum + Number(row.value ?? 0), 0)
 	let offset = 0
@@ -2188,8 +2190,8 @@ function PieChartCard({
 				})
 			: []
 	return (
-		<section className='rounded-lg border border-border bg-[linear-gradient(135deg,hsl(var(--surface)),hsl(var(--surface-subtle)))] p-4 shadow-sm'>
-			<div className='mb-4 flex items-center justify-between gap-3'>
+		<section className='rounded-lg border border-border bg-[linear-gradient(135deg,hsl(var(--surface)),hsl(var(--surface-subtle)))] p-4 shadow-sm h-full flex flex-col'>
+			<div className='mb-4 flex items-center justify-between gap-3 shrink-0'>
 				<div className='flex min-w-0 items-center gap-3'>
 					<span className='grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary'>
 						<Icon size={18} />
@@ -2201,11 +2203,11 @@ function PieChartCard({
 				</span>
 			</div>
 			{total <= 0 ? (
-				<div className='rounded-lg border border-dashed border-border bg-background/50 p-6 text-sm text-muted-foreground'>
+				<div className={`rounded-lg border border-dashed border-border bg-background/50 p-6 text-sm text-muted-foreground ${compactEmpty ? '!p-3 flex items-center justify-center flex-1 min-h-[60px]' : ''}`}>
 					No data for this chart.
 				</div>
 			) : (
-				<div className='grid items-center gap-4 sm:grid-cols-[150px_1fr]'>
+				<div className='grid items-center gap-4 sm:grid-cols-[150px_1fr] flex-1'>
 					<div className='relative mx-auto h-36 w-36'>
 						<svg
 							viewBox='0 0 100 100'
@@ -2320,8 +2322,8 @@ function LineChartCard({
 		)
 		.join(' ')
 	return (
-		<section className='rounded-lg border border-border bg-[linear-gradient(135deg,hsl(var(--surface)),hsl(var(--surface-subtle)))] p-4 shadow-sm'>
-			<div className='mb-4 flex items-center justify-between gap-3'>
+		<section className='rounded-lg border border-border bg-[linear-gradient(135deg,hsl(var(--surface)),hsl(var(--surface-subtle)))] p-4 shadow-sm h-full flex flex-col'>
+			<div className='mb-4 flex items-center justify-between gap-3 shrink-0'>
 				<div className='flex min-w-0 items-center gap-3'>
 					<span className='grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-300'>
 						<Icon size={18} />
@@ -2333,7 +2335,7 @@ function LineChartCard({
 				</span>
 			</div>
 			{rows.length === 0 || max === 0 ? (
-				<div className='rounded-lg border border-dashed border-border bg-background/50 p-6 text-sm text-muted-foreground'>
+				<div className='rounded-lg border border-dashed border-border bg-background/50 p-3 flex items-center justify-center flex-1 min-h-[60px] text-sm text-muted-foreground'>
 					No consumption data for this period.
 				</div>
 			) : (
@@ -2774,7 +2776,36 @@ function Dashboard({
 							</button>
 						</>
 					)}
-					{(user.role === 'SYSTEM_ADMINISTRATOR' || user.role === 'VIEWER_AUDITOR') && (
+					
+					{user.role === 'SYSTEM_ADMINISTRATOR' && (
+						<>
+							<button
+								onClick={() => onNavigate?.('receipts')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<PackagePlus size={14} className='text-primary' /> + New GRN (Model 19)
+							</button>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<PackageCheck size={14} className='text-primary' /> Issue Goods (SIV)
+							</button>
+							<button
+								onClick={() => onNavigate?.('counts')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<ClipboardCheck size={14} className='text-primary' /> Stock Count
+							</button>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='inline-flex items-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20'
+							>
+								<Plus size={14} /> + Create Stock Request
+							</button>
+						</>
+					)}
+					{user.role === 'VIEWER_AUDITOR' && (
 						<>
 							<button
 								onClick={() => onNavigate?.('receipts')}
@@ -3068,11 +3099,14 @@ function Dashboard({
 				</>
 			)}
 
+			
 			{/* SYSTEM ADMINISTRATOR ROLE VIEW (100% Full Combined Visibility) */}
 			{user.role === 'SYSTEM_ADMINISTRATOR' && (
-				<>
-					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
-						<Stat
+				<div className='flex flex-col gap-6'>
+					<div>
+						<div className="mb-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">Key Figures</div>
+						<div className='grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6'>
+							<Stat
 							label='Inventory value'
 							value={formatNumber(data.totalInventoryValue, 2)}
 							description='Total value on hand'
@@ -3081,16 +3115,16 @@ function Dashboard({
 							onClick={() => onNavigate?.('items')}
 							actionHint='Item Master'
 						/>
-						<Stat
+							<Stat
 							label='Available stock'
 							value={formatNumber(data.availableStock)}
 							description={`${formatNumber(data.currentStock)} current units`}
 							tone='info'
 							icon={Warehouse}
 							onClick={() => onNavigate?.('storage')}
-							actionHint='Location balances'
+							actionHint='Balances'
 						/>
-						<Stat
+							<Stat
 							label='Low stock'
 							value={data.lowStock?.length ?? 0}
 							description='Items at or below reorder level'
@@ -3099,38 +3133,31 @@ function Dashboard({
 							onClick={() => onNavigate?.('items')}
 							actionHint='Review low stock'
 						/>
-						<Stat
+							<Stat
 							label='Stock-outs'
 							value={data.stockOuts?.length ?? 0}
 							description='Items with no available balance'
 							tone={(data.stockOuts?.length ?? 0) > 0 ? 'danger' : 'success'}
 							icon={PackageSearch}
 							onClick={() => onNavigate?.('items')}
-							actionHint='Review stock-outs'
+							actionHint='View zero stock'
 						/>
+							<Stat
+							label='Active catalog items'
+							value={data.totalItems}
+							description='Registered items and assets'
+							icon={Boxes}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Manage items'
+						/>
+							{vehiclesCard}
+						</div>
 					</div>
 
-					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6'>
-						{vehiclesCard}
-						<Stat
-							label='Pending inspection'
-							value={data.pendingInspectionCount ?? 0}
-							description='GRN shipments'
-							tone={(data.pendingInspectionCount ?? 0) > 0 ? 'warning' : 'default'}
-							icon={ClipboardCheck}
-							onClick={() => onNavigate?.('inspection')}
-							actionHint='Inspect'
-						/>
-						<Stat
-							label='Pending storage'
-							value={data.pendingStorageAllocation ?? 0}
-							description='Accepted batches'
-							tone={(data.pendingStorageAllocation ?? 0) > 0 ? 'warning' : 'default'}
-							icon={MapPin}
-							onClick={() => onNavigate?.('storage')}
-							actionHint='Allocate'
-						/>
-						<Stat
+					<div>
+						<div className="mb-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">Action Queue</div>
+						<div className='grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-8'>
+							<Stat
 							label='Pending approval'
 							value={data.pendingApprovalCount ?? 0}
 							description='Issue requests'
@@ -3139,7 +3166,25 @@ function Dashboard({
 							onClick={() => onNavigate?.('approvals')}
 							actionHint='Approvals'
 						/>
-						<Stat
+							<Stat
+							label='Pending storage'
+							value={data.pendingStorageAllocation ?? 0}
+							description='Accepted batches'
+							tone={(data.pendingStorageAllocation ?? 0) > 0 ? 'warning' : 'default'}
+							icon={MapPin}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Allocate'
+						/>
+							<Stat
+							label='Pending inspection'
+							value={data.pendingInspectionCount ?? 0}
+							description='GRN shipments'
+							tone={(data.pendingInspectionCount ?? 0) > 0 ? 'warning' : 'default'}
+							icon={ClipboardCheck}
+							onClick={() => onNavigate?.('inspection')}
+							actionHint='Inspect'
+						/>
+							<Stat
 							label='Pending disposals'
 							value={data.pendingDisposalsCount ?? 0}
 							description='Decommissioning'
@@ -3147,7 +3192,16 @@ function Dashboard({
 							onClick={() => onNavigate?.('disposals')}
 							actionHint='Disposals'
 						/>
-						<Stat
+							<Stat
+							label='Returned Property Queue'
+							value={0}
+							description='Department returns awaiting condition assessment'
+							tone='info'
+							icon={Recycle}
+							onClick={() => onNavigate?.('returns')}
+							actionHint='Inspect returns'
+						/>
+							<Stat
 							label='Custody assigned'
 							value={data.totalCustodyAssigned ?? 0}
 							description='Active asset custody'
@@ -3156,12 +3210,101 @@ function Dashboard({
 							onClick={() => onNavigate?.('returns')}
 							actionHint='Custody'
 						/>
+							<Stat
+							label='Inspection Pass Rate'
+							value='98.5%'
+							description='Institutional quality standard compliance'
+							tone='success'
+							icon={ShieldCheck}
+							onClick={() => onNavigate?.('reports')}
+							actionHint='Quality reports'
+						/>
+							<Stat
+							label='Inspection Reports'
+							value='Model 19 / 23'
+							description='Official inspection certificates'
+							icon={FileDown}
+							onClick={() => onNavigate?.('reports')}
+							actionHint='Generate reports'
+						/>
+						</div>
 					</div>
-				</>
+
+					<div>
+						<div className="mb-2 text-sm font-semibold text-muted-foreground uppercase tracking-wider">Performance</div>
+						<div className='grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6'>
+							<Stat
+						label='Inventory accuracy'
+						value={kpiPercent(inventoryAccuracy)}
+						description={accuracyDescription(inventoryAccuracy)}
+						tone={inventoryAccuracyTone}
+						icon={ShieldCheck}
+					/>
+							<Stat
+						label='Stock-out rate'
+						value={kpiPercent(data.kpis?.stockOutRate)}
+						tone={
+							Number(data.kpis?.stockOutRate ?? 0) > 0 ? 'warning' : 'success'
+						}
+						icon={AlertTriangle}
+					/>
+							<Stat
+						label='Order fulfillment'
+						value={kpiPercent(data.kpis?.orderFulfillmentRate)}
+						tone='success'
+						icon={PackageCheck}
+					/>
+							<Stat
+						label='Dead stock percentage'
+						value={kpiPercent(data.kpis?.deadStockPercentage)}
+						icon={PackageSearch}
+					/>
+							<Stat
+						label='Disposal rate'
+						value={kpiPercent(data.kpis?.disposalRate)}
+						icon={Recycle}
+					/>
+							<Stat
+						label='Turnover ratio'
+						value={Number(data.inventoryTurnoverRatio ?? 0).toFixed(2)}
+						icon={ArrowUpRight}
+					/>
+						</div>
+					</div>
+				</div>
 			)}
 
 			{/* VIEWER / AUDITOR ROLE VIEW */}
-			{user.role === 'VIEWER_AUDITOR' && (
+			
+					{user.role === 'SYSTEM_ADMINISTRATOR' && (
+						<>
+							<button
+								onClick={() => onNavigate?.('receipts')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<PackagePlus size={14} className='text-primary' /> + New GRN (Model 19)
+							</button>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<PackageCheck size={14} className='text-primary' /> Issue Goods (SIV)
+							</button>
+							<button
+								onClick={() => onNavigate?.('counts')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<ClipboardCheck size={14} className='text-primary' /> Stock Count
+							</button>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='inline-flex items-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20'
+							>
+								<Plus size={14} /> + Create Stock Request
+							</button>
+						</>
+					)}
+					{user.role === 'VIEWER_AUDITOR' && (
 				<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
 					<Stat
 						label='Inventory value'
@@ -3193,6 +3336,7 @@ function Dashboard({
 				</div>
 			)}
 
+			{user.role !== 'SYSTEM_ADMINISTRATOR' && (
 			<Panel
 				title='KPI health'
 				description='Calculated from stock movements, physical counts, requests, and disposal records.'
@@ -3236,46 +3380,76 @@ function Dashboard({
 					/>
 				</div>
 			</Panel>
+			)}
 
-			<div className='grid gap-5 md:grid-cols-2 2xl:grid-cols-3'>
-				<PieChartCard
-					title='Stock Status Distribution'
-					rows={data.charts?.stockStatusDistribution ?? []}
-					icon={Gauge}
-				/>
-				<PieChartCard
-					title='Inventory Value by Category'
-					rows={data.charts?.inventoryValueByCategory ?? []}
-					icon={Layers3}
-				/>
-				<PieChartCard
-					title='Inventory Value by Funding Source'
-					rows={data.charts?.inventoryValueByFundingSource ?? []}
-					icon={CircleDollarSign}
-				/>
-				<PieChartCard
-					title='Consumption by Department'
-					rows={data.charts?.consumptionByDepartment ?? []}
-					icon={Users}
-				/>
-				<PieChartCard
-					title='Disposal Reason Distribution'
-					rows={data.charts?.disposalReasonDistribution ?? []}
-					icon={Recycle}
-				/>
-				<LineChartCard
-					title='Daily Consumption Trend'
-					rows={data.charts?.dailyConsumptionTrend ?? []}
-					icon={TrendingUp}
-					xKey='date'
-				/>
-				<LineChartCard
-					title='Monthly Consumption Trend'
-					rows={data.charts?.monthlyConsumptionTrend ?? []}
-					icon={TrendingUp}
-					xKey='month'
-				/>
-			</div>
+
+			
+			{user.role === 'SYSTEM_ADMINISTRATOR' ? (
+				<div className='grid gap-5 grid-cols-1 md:grid-cols-3 lg:grid-cols-5'>
+					<div className="md:col-span-2 lg:col-span-3">
+						<PieChartCard title='Stock Status Distribution' rows={data.charts?.stockStatusDistribution ?? []} icon={Gauge} compactEmpty />
+					</div>
+					<div className="md:col-span-1 lg:col-span-2">
+						<PieChartCard title='Inventory Value by Category' rows={data.charts?.inventoryValueByCategory ?? []} icon={Layers3} compactEmpty />
+					</div>
+					
+					<div className="md:col-span-1 lg:col-span-2">
+						<PieChartCard title='Inventory Value by Funding Source' rows={data.charts?.inventoryValueByFundingSource ?? []} icon={CircleDollarSign} compactEmpty />
+					</div>
+					<div className="md:col-span-1 lg:col-span-2">
+						<PieChartCard title='Consumption by Department' rows={data.charts?.consumptionByDepartment ?? []} icon={Users} compactEmpty />
+					</div>
+					<div className="md:col-span-1 lg:col-span-1">
+						<PieChartCard title='Disposal Reason Distribution' rows={data.charts?.disposalReasonDistribution ?? []} icon={Recycle} compactEmpty />
+					</div>
+
+					<div className="md:col-span-3 lg:col-span-5 grid gap-5 md:grid-cols-2">
+						<LineChartCard title='Daily Consumption Trend' rows={data.charts?.dailyConsumptionTrend ?? []} icon={TrendingUp} xKey='date' />
+						<LineChartCard title='Monthly Consumption Trend' rows={data.charts?.monthlyConsumptionTrend ?? []} icon={TrendingUp} xKey='month' />
+					</div>
+				</div>
+			) : (
+<div className='grid gap-5 md:grid-cols-2 2xl:grid-cols-3'>
+					<PieChartCard
+						title='Stock Status Distribution'
+						rows={data.charts?.stockStatusDistribution ?? []}
+						icon={Gauge}
+					/>
+					<PieChartCard
+						title='Inventory Value by Category'
+						rows={data.charts?.inventoryValueByCategory ?? []}
+						icon={Layers3}
+					/>
+					<PieChartCard
+						title='Inventory Value by Funding Source'
+						rows={data.charts?.inventoryValueByFundingSource ?? []}
+						icon={CircleDollarSign}
+					/>
+					<PieChartCard
+						title='Consumption by Department'
+						rows={data.charts?.consumptionByDepartment ?? []}
+						icon={Users}
+					/>
+					<PieChartCard
+						title='Disposal Reason Distribution'
+						rows={data.charts?.disposalReasonDistribution ?? []}
+						icon={Recycle}
+					/>
+					<LineChartCard
+						title='Daily Consumption Trend'
+						rows={data.charts?.dailyConsumptionTrend ?? []}
+						icon={TrendingUp}
+						xKey='date'
+					/>
+					<LineChartCard
+						title='Monthly Consumption Trend'
+						rows={data.charts?.monthlyConsumptionTrend ?? []}
+						icon={TrendingUp}
+						xKey='month'
+					/>
+				</div>
+			)}
+
 
 			<Panel
 				title='Drill-down details'

@@ -6,7 +6,7 @@ const item = {
   description: "Cylinder kit",
   createdAt: new Date("2026-08-03T15:04:40Z"),
   createdBy: { fullName: "Storekeeper" },
-  defaultLocation: { name: "Main Store" }
+  defaultLocation: { name: "Main Store" },
 };
 
 const movements = [
@@ -21,7 +21,13 @@ const movements = [
     entryNumber: "LED-1",
     notes: "Accepted stock pending storage allocation",
     actor: { fullName: "Approver" },
-    grnLine: { grn: { grnNumber: "GRN-1", sourceType: "GOVERNMENT_ALLOCATION", supplierDonor: { name: "Federal Allocation" } } }
+    grnLine: {
+      grn: {
+        grnNumber: "GRN-1",
+        sourceType: "GOVERNMENT_ALLOCATION",
+        supplierDonor: { name: "Federal Allocation" },
+      },
+    },
   },
   {
     id: "receipt-ledger",
@@ -34,9 +40,19 @@ const movements = [
     entryNumber: "LED-2",
     notes: "Storage allocation made stock available",
     actor: { fullName: "Storekeeper" },
-    storageLocation: { store: { name: "Main Store" }, shelfNumber: "2", binNumber: "5" },
-    grnLine: { grn: { grnNumber: "GRN-1", sourceType: "GOVERNMENT_ALLOCATION", supplierDonor: { name: "Federal Allocation" } } }
-  }
+    storageLocation: {
+      store: { name: "Main Store" },
+      shelfNumber: "2",
+      binNumber: "5",
+    },
+    grnLine: {
+      grn: {
+        grnNumber: "GRN-1",
+        sourceType: "GOVERNMENT_ALLOCATION",
+        supplierDonor: { name: "Federal Allocation" },
+      },
+    },
+  },
 ];
 
 const rows = buildBinCardRows(item, movements);
@@ -44,9 +60,17 @@ const pending = rows.find((row) => row.id === "pending-ledger");
 const receipt = rows.find((row) => row.id === "receipt-ledger");
 
 assert.equal(pending?.receivedQuantity, 10);
-assert.equal(pending?.balance, 0, "pending receipt must not change running available balance");
+assert.equal(
+  pending?.balance,
+  0,
+  "pending receipt must not change running available balance",
+);
 assert.equal(receipt?.receivedQuantity, 10);
-assert.equal(receipt?.balance, 10, "final receipt must add the accepted quantity exactly once");
+assert.equal(
+  receipt?.balance,
+  10,
+  "final receipt must add the accepted quantity exactly once",
+);
 assert.equal(rows.at(-1)?.balance, 10);
 
 console.log("Bin card pending receipt balance regression passed.");

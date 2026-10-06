@@ -13,12 +13,17 @@ async function main() {
         { description: { contains: "ቀን" } },
         { description: { contains: "ፊርማ" } },
         { code: { contains: "MIHRET-0669" } },
-        { code: { contains: "SIGN" } }
-      ]
+        { code: { contains: "SIGN" } },
+      ],
     },
     orderBy: { createdAt: "desc" },
     take: 50,
-    select: { code: true, description: true, maximumStock: true, createdAt: true }
+    select: {
+      code: true,
+      description: true,
+      maximumStock: true,
+      createdAt: true,
+    },
   });
   console.log(JSON.stringify(rows, null, 2));
 }

@@ -1,0 +1,423 @@
+function DisposalManagement({ token, user }: { token: string; user: User }) {
+	const [rows, setRows] = useState<any[]>([])
+	const [balances, setBalances] = useState<any[]>([])
+	const [master, setMaster] = useState<any>()
+	const [message, setMessage] = useState('')
+	const [reason, setReason] = useState('')
+	const [selectedBalanceId, setSelectedBalanceId] = useState('')
+	const [quantity, setQuantity] = useState(1)
+	const [loadingAction, setLoadingAction] = useState('')
+	const canWrite = user.permissions.includes(permissions.DISPOSAL_WRITE)
+	const canApprove = user.permissions.includes(permissions.DISPOSAL_APPROVE)
+	const load = async () => {
+		const [disposalRows, balanceRows, masterData] = await Promise.all([
+			request<any[]>('/disposals', token),
+			request<any[]>('/location-balances', token),
+			request<any>('/master-data', token),
+		])
+		setRows(disposalRows)
+		setBalances(balanceRows.filter((row) => Number(row.quantityAvailable) > 0))
+		setSelectedBalanceId(
+			(current) =>
+				current ||
+				balanceRows.find((row: any) => Number(row.quantityAvailable) > 0)?.id ||
+				''
+		)
+		setMaster(masterData)
+		setReason(
+			(current) => current || masterData.disposalReasons?.[0]?.name || ''
+		)
+	}
+	useEffect(() => {
+		load().catch((err) =>
+			setMessage(errorMessage(err, 'Unable to load disposal records.'))
+		)
+	}, [token])
+	async function createDisposal(event: React.FormEvent) {
+		event.preventDefault()
+		const balance = balances.find((row) => row.id === selectedBalanceId)
+		if (!balance) {
+			setMessage('No available located stock to propose for disposal.')
+			notify('warning', 'No available located stock to propose for disposal.')
+			return
+		}
+		if (quantity <= 0 || quantity > Number(balance.quantityAvailable)) {
+			setMessage('Enter a disposal quantity within the available stock.')
+			notify('warning', 'Enter a disposal quantity within the available stock.')
+			return
+		}
+		setLoadingAction('create')
+		try {
+			await request('/disposals', token, {
+				method: 'POST',
+				body: JSON.stringify({
+					reason,
+					lines: [
+						{
+							itemId: balance.itemId,
+							batchId: balance.batchId,
+							storageLocationId: balance.storageLocationId,
+							storeId: balance.storeId,
+							quantity,
+							batchNumber: balance.batch?.batchNumber,
+							expiryDate: balance.batch?.expiryDate,
+						},
+					],
+				}),
+			})
+			setMessage('Disposal request created for committee review.')
+			notify('success', 'Disposal request created for committee review.')
+			await load()
+		} catch (err) {
+			const message = errorMessage(err, 'Unable to create disposal request.')
+			setMessage(message)
+			notify('error', message)
+		} finally {
+			setLoadingAction('')
+		}
+	}
+	async function action(id: string, endpoint: string, success: string) {
+		setLoadingAction(`${id}-${endpoint}`)
+		try {
+			await request(`/disposals/${id}/${endpoint}`, token, {
+				method: 'POST',
+				body: JSON.stringify({
+					committeeNotes: 'Committee reviewed from UI',
+					method: 'Documented disposal',
+					responsibleParties: 'Storekeeper',
+				}),
+			})
+			setMessage(success)
+			notify('success', success)
+			await load()
+		} catch (err) {
+			const message = errorMessage(err, 'Unable to complete disposal action.')
+			setMessage(message)
+			notify('error', message)
+		} finally {
+			setLoadingAction('')
+		}
+	}
+	return (
+		<Panel title='Disposal Management'>
+			{canWrite && (
+				<form
+					onSubmit={createDisposal}
+					className='mb-4 grid gap-3 rounded border border-border p-3 md:grid-cols-5'
+				>
+					<select
+						className='rounded border border-border bg-background px-3 py-2 text-sm md:col-span-2'
+						value={selectedBalanceId}
+						onChange={(e) => setSelectedBalanceId(e.target.value)}
+					>
+						<option value=''>Select item and storage location</option>
+						{balances.map((balance) => (
+							<option key={balance.id} value={balance.id}>
+								{balance.item?.description} / {balance.store?.name} shelf{' '}
+								{balance.storageLocation?.shelfNumber} bin{' '}
+								{balance.storageLocation?.binNumber} / available{' '}
+								{String(balance.quantityAvailable)}
+							</option>
+						))}
+					</select>
+					<input
+						className='rounded border border-border bg-background px-3 py-2 text-sm'
+						type='number'
+						min='1'
+						placeholder='Quantity proposed'
+						value={quantity}
+						onChange={(e) => setQuantity(Number(e.target.value))}
+					/>
+					<select
+						className='rounded border border-border bg-background px-3 py-2 text-sm'
+						value={reason}
+						onChange={(e) => setReason(e.target.value)}
+						required
+					>
+						<option value=''>Select reason for disposal</option>
+						{master?.disposalReasons?.map((row: any) => (
+							<option key={row.id} value={row.name}>
+								{row.name}
+							</option>
+						))}
+					</select>
+					<button
+						disabled={loadingAction === 'create'}
+						className='rounded bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60'
+					>
+						<LoadingInline
+							loading={loadingAction === 'create'}
+							label='Create request'
+							loadingLabel='Creating...'
+						/>
+					</button>
+				</form>
+			)}
+			{message && (
+				<p className='mb-3 rounded border border-border bg-muted px-3 py-2 text-sm'>
+					{message}
+				</p>
+			)}
+			<DataTable
+				rows={rows}
+				columns={[
+					{ key: 'disposalNumber', label: 'Request' },
+					{ key: 'reason', label: 'Reason' },
+					{ key: 'status', label: 'Status' },
+					{
+						key: 'lines',
+						label: 'Lines',
+						render: (row) =>
+							row.lines
+								?.map(
+									(line: any) => `${line.item?.description} (${line.quantity})`
+								)
+								.join(', '),
+					},
+					{
+						key: 'actions',
+						label: 'Actions',
+						render: (row) => (
+							<div className='flex flex-wrap gap-2'>
+								{canApprove &&
+									[
+										'COMMITTEE_REVIEW',
+										'UNDER_REVIEW',
+										'PENDING_APPROVAL',
+									].includes(row.status) && (
+										<button
+											disabled={loadingAction === `${row.id}-approve`}
+											className='rounded border border-border px-2 py-1 text-xs disabled:opacity-60'
+											onClick={() =>
+												action(row.id, 'approve', 'Disposal approved.')
+											}
+										>
+											<LoadingInline
+												loading={loadingAction === `${row.id}-approve`}
+												label='Approve'
+												loadingLabel='Approving...'
+											/>
+										</button>
+									)}
+								{canWrite && row.status === 'APPROVED' && (
+									<button
+										disabled={loadingAction === `${row.id}-dispose`}
+										className='rounded border border-border px-2 py-1 text-xs disabled:opacity-60'
+										onClick={() =>
+											action(
+												row.id,
+												'dispose',
+												'Disposal completed and stock deducted.'
+											)
+										}
+									>
+										<LoadingInline
+											loading={loadingAction === `${row.id}-dispose`}
+											label='Dispose'
+											loadingLabel='Disposing...'
+										/>
+									</button>
+								)}
+							</div>
+						),
+					},
+				]}
+			/>
+		</Panel>
+	)
+}
+
+function reportReference(row: any) {
+	return (
+		row.grnNumber ??
+		row.requestNumber ??
+		row.voucherNumber ??
+		row.disposalNumber ??
+		row.countNumber ??
+		row.adjustmentNumber ??
+		row.entryNumber ??
+		row.item?.description ??
+		row.item?.code ??
+		row.description ??
+		row.code ??
+		row.action ??
+		row.id ??
+		'Row'
+	)
+}
+
+function reportStatus(
+	row: any,
+	reportType?: (typeof reportTypes)[number],
+	item = row.item ?? row
+) {
+	const explicit = row.status ?? row.stockStatus
+	if (explicit) return formatStatus(explicit)
+	if (
+		reportType &&
+		['stock-status', 'balance', 'valuation', 'stock-out', 'reorder'].includes(
+			reportType
+		)
+	) {
+		const quantity = Number(
+			row.quantity ?? row.quantityAvailable ?? row.currentStock ?? 0
+		)
+		const minimum = Number(item?.minimumStock ?? row.minimumStock ?? 0)
+		const reorder = Number(item?.reorderLevel ?? row.reorderLevel ?? minimum)
+		const maximum = Number(
+			item?.maximumStock ?? row.maximumStock ?? Number.POSITIVE_INFINITY
+		)
+		if (quantity <= 0) return 'Stock Out'
+		if (quantity < minimum) return 'Below Minimum'
+		if (quantity <= reorder) return 'Low Stock'
+		if (Number.isFinite(maximum) && quantity > maximum) return 'Overstock'
+		return 'Normal'
+	}
+	return formatStatus(row.type ?? row.sourceType ?? row.method ?? 'Recorded')
+}
+
+function reportQuantity(row: any, line?: any) {
+	return (
+		line?.quantity ??
+		line?.quantityReceived ??
+		line?.systemQuantity ??
+		row.quantity ??
+		row.quantityAvailable ??
+		row.quantityOnHand ??
+		row.currentStock ??
+		row.issuedQuantity ??
+		row.totalAcceptedQuantity ??
+		row.remainingQuantity ??
+		row.lines?.reduce?.(
+			(sum: number, line: any) =>
+				sum +
+				Number(
+					line.quantity ?? line.quantityReceived ?? line.systemQuantity ?? 0
+				),
+			0
+		) ??
+		'N/A'
+	)
+}
+
+function reportDate(row: any) {
+	const value =
+		row.postedAt ??
+		row.createdAt ??
+		row.receivedAt ??
+		row.issuedAt ??
+		row.openedAt ??
+		row.assignedAt ??
+		row.expiryDate ??
+		row.batch?.expiryDate
+	return value ? new Date(value).toLocaleString() : 'N/A'
+}
+
+function reportFlatRow(row: any, reportType?: (typeof reportTypes)[number]) {
+	const item =
+		row.item ?? row.lines?.[0]?.item ?? row.issueRequest?.lines?.[0]?.item
+	return {
+		date: reportDate(row),
+		reference: reportReference(row),
+		itemCode: item?.code ?? row.code ?? 'N/A',
+		item: item?.description ?? row.description ?? 'N/A',
+		category: item?.category?.name ?? 'N/A',
+		unit: item?.unit?.symbol ?? 'N/A',
+		provider: row.supplierDonor?.name ?? 'N/A',
+		department:
+			row.department?.name ??
+			row.custodianDepartment?.name ??
+			row.issueRequest?.department?.name ??
+			'N/A',
+		status: reportStatus(row, reportType, item ?? row),
+		quantity: reportQuantity(row),
+		value: row.value ?? 'N/A',
+		assetTag: row.assetTag ?? 'N/A',
+		serialNumber: row.serialNumber ?? 'N/A',
+		custodian: row.custodianName ?? 'N/A',
+		condition: row.condition?.replaceAll('_', ' ') ?? 'N/A',
+		assignedAt: row.assignedAt ? formatDate(row.assignedAt) : 'N/A',
+		returnedAt: row.returnedAt ? formatDate(row.returnedAt) : 'N/A',
+	}
+}
+
+function reportFlatRows(type: (typeof reportTypes)[number], rows: any[]) {
+	if (
+		[
+			'receipt',
+			'grn',
+			'issue',
+			'store-issue-voucher',
+			'physical-count',
+			'disposal',
+		].includes(type)
+	) {
+		return rows.flatMap((row) => {
+			const lines = row.lines ?? row.issueRequest?.lines ?? []
+			if (!lines.length) return [reportFlatRow(row, type)]
+			return lines.map((line: any) => {
+				const item = line.item ?? row.item
+				return {
+					...reportFlatRow(row, type),
+					itemCode: item?.code ?? 'N/A',
+					item: item?.description ?? 'N/A',
+					category: item?.category?.name ?? 'N/A',
+					unit: item?.unit?.symbol ?? 'N/A',
+					quantity: reportQuantity(row, line),
+					value: line.unitPrice
+						? Number(line.unitPrice) * Number(reportQuantity(row, line) ?? 0)
+						: 'N/A',
+				}
+			})
+		})
+	}
+	return rows.map((row) => reportFlatRow(row, type))
+}
+
+function reportColumns(type: (typeof reportTypes)[number]) {
+	const stock = [
+		{ key: 'itemCode', label: 'Item code' },
+		{ key: 'item', label: 'Item description' },
+		{ key: 'category', label: 'Category' },
+		{ key: 'unit', label: 'Unit' },
+		{ key: 'quantity', label: 'Quantity' },
+		{ key: 'status', label: 'Status' },
+	]
+	if (type === 'receipt' || type === 'grn')
+		return [
+			{ key: 'date', label: 'Date' },
+			{ key: 'reference', label: 'GRN' },
+			{ key: 'provider', label: 'Supplier / donor' },
+			...stock,
+		]
+	if (type === 'issue' || type === 'store-issue-voucher')
+		return [
+			{ key: 'date', label: 'Date' },
+			{ key: 'reference', label: 'Request / SIV' },
+			{ key: 'department', label: 'Department' },
+			...stock,
+		]
+	if (type === 'valuation') return [...stock, { key: 'value', label: 'Value' }]
+	if (type === 'asset-custody')
+		return [
+			{ key: 'assetTag', label: 'Asset tag' },
+			{ key: 'serialNumber', label: 'Serial number' },
+			{ key: 'itemCode', label: 'Item code' },
+			{ key: 'item', label: 'Item description' },
+			{ key: 'custodian', label: 'Custodian' },
+			{ key: 'department', label: 'Department' },
+			{ key: 'assignedAt', label: 'Assigned' },
+			{ key: 'returnedAt', label: 'Returned' },
+			{ key: 'condition', label: 'Condition' },
+			{ key: 'status', label: 'Status' },
+		]
+	if (type === 'audit-log')
+		return [
+			{ key: 'date', label: 'Date' },
+			{ key: 'reference', label: 'Record' },
+			{ key: 'status', label: 'Action' },
+		]
+	return stock
+}
+
+function Reports

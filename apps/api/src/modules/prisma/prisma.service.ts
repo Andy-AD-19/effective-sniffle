@@ -3,7 +3,10 @@ import { PrismaClient } from "@prisma/client";
 import { configureSqliteDatabaseUrl } from "./sqlite-url";
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   constructor() {
     configureSqliteDatabaseUrl();
     super();

@@ -1,0 +1,518 @@
+﻿diff --git a/apps/web/src/main.tsx b/apps/web/src/main.tsx
+index a0d5316..1cc98d9 100644
+--- a/apps/web/src/main.tsx
++++ b/apps/web/src/main.tsx
+@@ -100,29 +100,9 @@ import { SearchableSelect } from './components/SearchableSelect'
+ import './styles.css'
+ 
+ export function getApiBaseUrl(): string {
+-	try {
+-		const stored = localStorage.getItem('fmoh_api_url')
+-		if (stored && stored.trim()) {
+-			return stored.trim().replace(/\/+$/, '')
+-		}
+-	} catch {}
+-	const envUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
++	const envUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
+ 	if (envUrl) return envUrl
+-	if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+-		return window.location.origin
+-	}
+-	return 'http://127.0.0.1:3001'
+-}
+-
+-export function setApiBaseUrl(url: string) {
+-	try {
+-		const cleaned = url.trim().replace(/\/+$/, '')
+-		if (cleaned) {
+-			localStorage.setItem('fmoh_api_url', cleaned)
+-		} else {
+-			localStorage.removeItem('fmoh_api_url')
+-		}
+-	} catch {}
++	return '/api'
+ }
+ 
+ type User = {
+@@ -185,10 +165,16 @@ const roleLabels: Record<RoleName, string> = {
+ const roleNavViews: Record<RoleName, AppView[]> = {
+ 	SYSTEM_ADMINISTRATOR: [
+ 		'dashboard',
++		'items',
++		'receipts',
++		'storage',
++		'ledger',
++		'bin-card',
++		'issues',
++		'returns',
+ 		'approvals',
+ 		'inspection',
+-		'returns',
+-		'issues',
++		'counts',
+ 		'adjustments',
+ 		'disposals',
+ 		'reports',
+@@ -252,7 +238,7 @@ const viewRules: Record<
+ 	dashboard: { anyPermissions: [permissions.DASHBOARD_READ] },
+ 	items: {
+ 		anyPermissions: [permissions.ITEM_READ],
+-		roles: ['STOREKEEPER', 'VIEWER_AUDITOR'],
++		roles: ['STOREKEEPER', 'VIEWER_AUDITOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	receipts: {
+ 		anyPermissions: [permissions.RECEIPT_WRITE, permissions.INSPECTION_WRITE],
+@@ -260,7 +246,7 @@ const viewRules: Record<
+ 	},
+ 	storage: {
+ 		anyPermissions: [permissions.STORAGE_WRITE],
+-		roles: ['STOREKEEPER'],
++		roles: ['STOREKEEPER', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	ledger: {
+ 		anyPermissions: [permissions.LEDGER_READ],
+@@ -268,7 +254,7 @@ const viewRules: Record<
+ 	},
+ 	'bin-card': {
+ 		anyPermissions: [permissions.ITEM_READ, permissions.LEDGER_READ],
+-		roles: ['STOREKEEPER', 'VIEWER_AUDITOR'],
++		roles: ['STOREKEEPER', 'VIEWER_AUDITOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	issues: {
+ 		anyPermissions: [
+@@ -299,7 +285,7 @@ const viewRules: Record<
+ 		],
+ 		roles: ['INSPECTOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+-	counts: { anyPermissions: [permissions.COUNT_WRITE], roles: ['STOREKEEPER'] },
++	counts: { anyPermissions: [permissions.COUNT_WRITE], roles: ['STOREKEEPER', 'SYSTEM_ADMINISTRATOR'] },
+ 	adjustments: {
+ 		anyPermissions: [permissions.ADJUSTMENT_APPROVE],
+ 		roles: ['SYSTEM_ADMINISTRATOR', 'APPROVER'],
+@@ -1001,9 +987,10 @@ async function request<T>(
+ 	token?: string,
+ 	init?: RequestInit
+ ): Promise<T> {
+-	const baseUrl = await apiBaseUrl()
++	const baseUrl = getApiBaseUrl()
+ 	const isFormData = init?.body instanceof FormData
+-	const response = await fetch(`${baseUrl}/api${path}`, {
++	const fullPath = path.startsWith('/') ? path : '/' + path
++	const response = await fetch(`${baseUrl}${fullPath}`, {
+ 		...init,
+ 		headers: {
+ 			...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+@@ -1085,10 +1072,6 @@ async function request<T>(
+ 	return result as T
+ }
+ 
+-async function apiBaseUrl() {
+-	return isDesktop() ? await desktopApiUrl() : getApiBaseUrl()
+-}
+-
+ async function friendlyResponseError(response: Response) {
+ 	const raw = await response.text()
+ 	if (!raw) return `Request failed with status ${response.status}.`
+@@ -1104,7 +1087,7 @@ async function friendlyResponseError(response: Response) {
+ }
+ 
+ function fileUrl(fileId?: string) {
+-	return fileId ? `${getApiBaseUrl()}/api/uploads/${fileId}` : ''
++	return fileId ? `${getApiBaseUrl()}/uploads/${fileId}` : ''
+ }
+ 
+ function cachedValue<T>(key: string, fallback: T): T {
+@@ -1239,6 +1222,11 @@ function useSmartTooltips() {
+ 		document.body.appendChild(tooltip)
+ 
+ 		const explain = (element: Element) => {
++			if (element.hasAttribute('data-no-tooltip')) {
++				element.removeAttribute('data-tooltip')
++				element.removeAttribute('title')
++				return ''
++			}
+ 			const existing =
+ 				element.getAttribute('data-tooltip') || element.getAttribute('title')
+ 			if (existing) {
+@@ -1420,9 +1408,6 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+ 	const [password, setPassword] = useState('Password123!')
+ 	const [error, setError] = useState('')
+ 	const [loading, setLoading] = useState(false)
+-	const [showServerConfig, setShowServerConfig] = useState(false)
+-	const [serverUrl, setServerUrl] = useState(getApiBaseUrl())
+-	const [testStatus, setTestStatus] = useState<string | null>(null)
+ 
+ 	async function submit(event: React.FormEvent) {
+ 		event.preventDefault()
+@@ -1517,59 +1502,14 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+ 						loadingLabel='Signing in...'
+ 					/>
+ 				</button>
+-				<div className='mt-4 pt-3 border-t border-border/60'>
+-					<button
+-						type='button'
+-						onClick={() => setShowServerConfig(!showServerConfig)}
+-						className='text-xs text-primary hover:underline flex items-center gap-1.5'
+-					>
+-						<Server size={13} />
+-						{showServerConfig ? 'Hide Server URL Settings' : 'Configure Server API URL'}
+-					</button>
+-					{showServerConfig && (
+-						<div className='mt-2 space-y-2 rounded-md bg-background/60 p-2.5 text-xs border border-border/50'>
+-							<label className='block font-medium text-foreground'>
+-								Backend API Base URL
+-								<input
+-									className='mt-1 w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs'
+-									value={serverUrl}
+-									onChange={(e) => {
+-										setServerUrl(e.target.value)
+-										setApiBaseUrl(e.target.value)
+-									}}
+-									placeholder='https://api.yourdomain.com'
+-								/>
+-							</label>
+-							<div className='flex items-center justify-between gap-2 pt-1'>
+-								<button
+-									type='button'
+-									onClick={async () => {
+-										setTestStatus('Testing...')
+-										try {
+-											const res = await fetch(`${getApiBaseUrl()}/api/health`, { method: 'GET' })
+-											if (res.ok) setTestStatus('Connected successfully!')
+-											else setTestStatus(`HTTP ${res.status}`)
+-										} catch (e: any) {
+-											setTestStatus(e.message || 'Connection failed')
+-										}
+-									}}
+-									className='rounded bg-secondary px-2 py-1 text-xs hover:bg-secondary/80 font-medium'
+-								>
+-									Test Connection
+-								</button>
+-								{testStatus && (
+-									<span className={`text-[11px] truncate ${testStatus.includes('success') ? 'text-success font-medium' : 'text-danger'}`}>
+-										{testStatus}
+-									</span>
+-								)}
+-							</div>
+-						</div>
+-					)}
+-				</div>
+-				<p className='mt-4 text-xs text-muted-foreground'>
+-					Seed users: admin, storekeeper, requester, approver, auditor
+-					@fmoh.local
+-				</p>
++				{import.meta.env.DEV && (
++					<div className='mt-4 pt-3 border-t border-border/60'>
++						<p className='text-xs text-muted-foreground'>
++							Seed users: admin, storekeeper, requester, approver, auditor
++							@fmoh.local
++						</p>
++					</div>
++				)}
+ 			</form>
+ 		</main>
+ 	)
+@@ -2692,7 +2632,7 @@ function Dashboard({
+ 					</span>
+ 				</div>
+ 				<div className='flex flex-wrap gap-2'>
+-					{user.role === 'STOREKEEPER' && (
++					{(user.role === 'STOREKEEPER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 						<>
+ 							<button
+ 								onClick={() => onNavigate?.('receipts')}
+@@ -2726,7 +2666,7 @@ function Dashboard({
+ 							</button>
+ 						</>
+ 					)}
+-					{user.role === 'APPROVER' && (
++					{(user.role === 'APPROVER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 						<>
+ 							<button
+ 								onClick={() => onNavigate?.('approvals')}
+@@ -2742,7 +2682,7 @@ function Dashboard({
+ 							</button>
+ 						</>
+ 					)}
+-					{user.role === 'INSPECTOR' && (
++					{(user.role === 'INSPECTOR' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 						<>
+ 							<button
+ 								onClick={() => onNavigate?.('inspection')}
+@@ -2758,7 +2698,7 @@ function Dashboard({
+ 							</button>
+ 						</>
+ 					)}
+-					{user.role === 'DEPARTMENT_USER' && (
++					{(user.role === 'DEPARTMENT_USER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 						<>
+ 							<button
+ 								onClick={() => onNavigate?.('issues')}
+@@ -2830,9 +2770,10 @@ function Dashboard({
+ 			</div>
+ 
+ 			{/* STOREKEEPER ROLE VIEW */}
+-			{user.role === 'STOREKEEPER' && (
++			{(user.role === 'STOREKEEPER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 				<>
+ 					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Inventory value'
+ 							value={formatNumber(data.totalInventoryValue, 2)}
+@@ -2842,6 +2783,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Item Master'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Available stock'
+ 							value={formatNumber(data.availableStock)}
+@@ -2851,6 +2794,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('storage')}
+ 							actionHint='Balances'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Batches awaiting storage'
+ 							value={data.pendingStorageAllocation ?? 0}
+@@ -2860,6 +2805,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('storage')}
+ 							actionHint='Allocate storage'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Pending Goods Receipts'
+ 							value={data.pendingInspectionCount ?? 0}
+@@ -2869,10 +2816,12 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('receipts')}
+ 							actionHint='Review GRNs'
+ 						/>
++						)}
+ 					</div>
+ 
+ 					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+-						{vehiclesCard}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && vehiclesCard}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Low stock alerts'
+ 							value={data.lowStock?.length ?? 0}
+@@ -2882,6 +2831,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Review levels'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Stock-outs'
+ 							value={data.stockOuts?.length ?? 0}
+@@ -2891,6 +2842,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='View zero stock'
+ 						/>
++						)}
+ 						<Stat
+ 							label='Active catalog items'
+ 							value={data.totalItems}
+@@ -2904,9 +2856,10 @@ function Dashboard({
+ 			)}
+ 
+ 			{/* APPROVER ROLE VIEW */}
+-			{user.role === 'APPROVER' && (
++			{(user.role === 'APPROVER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 				<>
+ 					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Pending Issue Approvals'
+ 							value={data.pendingApprovalCount ?? 0}
+@@ -2916,6 +2869,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('approvals')}
+ 							actionHint='Open approval desk'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Pending Disposals'
+ 							value={data.pendingDisposalsCount ?? 0}
+@@ -2925,6 +2880,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('disposals')}
+ 							actionHint='Review disposals'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Total Inventory Value'
+ 							value={formatNumber(data.totalInventoryValue, 2)}
+@@ -2934,10 +2891,12 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Valuation'
+ 						/>
+-						{vehiclesCard}
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && vehiclesCard}
+ 					</div>
+ 
+ 					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Available Stock Units'
+ 							value={formatNumber(data.availableStock)}
+@@ -2947,6 +2906,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('storage')}
+ 							actionHint='Check balances'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Low Stock Alerts'
+ 							value={data.lowStock?.length ?? 0}
+@@ -2956,6 +2917,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Review items'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Order Fulfillment Rate'
+ 							value={kpiPercent(data.kpis?.orderFulfillmentRate)}
+@@ -2965,14 +2928,16 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('reports')}
+ 							actionHint='View reports'
+ 						/>
++						)}
+ 					</div>
+ 				</>
+ 			)}
+ 
+ 			{/* INSPECTOR ROLE VIEW */}
+-			{user.role === 'INSPECTOR' && (
++			{(user.role === 'INSPECTOR' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 				<>
+ 					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Pending Goods Inspections'
+ 							value={data.pendingInspectionCount ?? 0}
+@@ -2982,6 +2947,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('inspection')}
+ 							actionHint='Start inspection'
+ 						/>
++						)}
+ 						<Stat
+ 							label='Returned Property Queue'
+ 							value={0}
+@@ -2991,6 +2957,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('returns')}
+ 							actionHint='Inspect returns'
+ 						/>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Active Catalog Items'
+ 							value={data.totalItems}
+@@ -2999,7 +2966,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Browse catalog'
+ 						/>
+-						{vehiclesCard}
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && vehiclesCard}
+ 					</div>
+ 
+ 					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+@@ -3012,6 +2980,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('reports')}
+ 							actionHint='Quality reports'
+ 						/>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Verified Stock Batches'
+ 							value={formatNumber(data.availableStock)}
+@@ -3021,6 +2990,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('storage')}
+ 							actionHint='Storage view'
+ 						/>
++						)}
+ 						<Stat
+ 							label='Inspection Reports'
+ 							value='Model 19 / 23'
+@@ -3034,9 +3004,10 @@ function Dashboard({
+ 			)}
+ 
+ 			{/* DEPARTMENT USER ROLE VIEW */}
+-			{user.role === 'DEPARTMENT_USER' && (
++			{(user.role === 'DEPARTMENT_USER' || user.role === 'SYSTEM_ADMINISTRATOR') && (
+ 				<>
+ 					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='My Stock Requests'
+ 							value={data.pendingApprovalCount ?? 0}
+@@ -3046,6 +3017,8 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('issues')}
+ 							actionHint='Track requests'
+ 						/>
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Assets in Custody'
+ 							value={data.totalCustodyAssigned ?? 0}
+@@ -3055,7 +3028,9 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('returns')}
+ 							actionHint='Custody records'
+ 						/>
+-						{vehiclesCard}
++						)}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && vehiclesCard}
++						{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 						<Stat
+ 							label='Available Catalog Items'
+ 							value={data.totalItems}
+@@ -3064,6 +3039,7 @@ function Dashboard({
+ 							onClick={() => onNavigate?.('items')}
+ 							actionHint='Browse items'
+ 						/>
++						)}
+ 					</div>
+ 				</>
+ 			)}
+@@ -3163,6 +3139,7 @@ function Dashboard({
+ 			{/* VIEWER / AUDITOR ROLE VIEW */}
+ 			{user.role === 'VIEWER_AUDITOR' && (
+ 				<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
++					{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 					<Stat
+ 						label='Inventory value'
+ 						value={formatNumber(data.totalInventoryValue, 2)}
+@@ -3172,6 +3149,8 @@ function Dashboard({
+ 						onClick={() => onNavigate?.('items')}
+ 						actionHint='Valuation'
+ 					/>
++					)}
++					{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 					<Stat
+ 						label='Available stock'
+ 						value={formatNumber(data.availableStock)}
+@@ -3181,7 +3160,9 @@ function Dashboard({
+ 						onClick={() => onNavigate?.('storage')}
+ 						actionHint='Balances'
+ 					/>
+-					{vehiclesCard}
++					)}
++					{user.role !== 'SYSTEM_ADMINISTRATOR' && vehiclesCard}
++					{user.role !== 'SYSTEM_ADMINISTRATOR' && (
+ 					<Stat
+ 						label='Active catalog items'
+ 						value={data.totalItems}
+@@ -3190,6 +3171,7 @@ function Dashboard({
+ 						onClick={() => onNavigate?.('items')}
+ 						actionHint='Audit items'
+ 					/>
++					)}
+ 				</div>
+ 			)}
+ 

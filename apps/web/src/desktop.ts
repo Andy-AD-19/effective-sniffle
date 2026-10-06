@@ -34,7 +34,8 @@ export function readCachedValue(key: string) {
 }
 
 export async function readStoredValue<T>(key: string, fallback: T): Promise<T> {
-  const value = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
+  const value =
+    typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
   return value ? (JSON.parse(value) as T) : fallback;
 }
 
@@ -54,17 +55,30 @@ export async function notifyDesktop(_title: string, _body: string) {
   // Browser notifications or toasts handle in-app notifications
 }
 
-export async function saveTextFile(defaultName: string, contents: string, _filters: FileFilter[]) {
-  const url = URL.createObjectURL(new Blob([contents], { type: "text/plain;charset=utf-8" }));
+export async function saveTextFile(
+  defaultName: string,
+  contents: string,
+  _filters: FileFilter[],
+) {
+  const url = URL.createObjectURL(
+    new Blob([contents], { type: "text/plain;charset=utf-8" }),
+  );
   triggerBrowserDownload(url, defaultName);
 }
 
-export async function saveBlobFile(defaultName: string, blob: Blob, _filters: FileFilter[]) {
+export async function saveBlobFile(
+  defaultName: string,
+  blob: Blob,
+  _filters: FileFilter[],
+) {
   const url = URL.createObjectURL(blob);
   triggerBrowserDownload(url, defaultName);
 }
 
-export async function pickFileAsBrowserFile(_title: string, _filters: FileFilter[]) {
+export async function pickFileAsBrowserFile(
+  _title: string,
+  _filters: FileFilter[],
+) {
   return undefined;
 }
 
@@ -94,7 +108,7 @@ export async function getDesktopStatus(): Promise<DesktopStatus> {
     backend_error: undefined,
     database_exists: true,
     database_size_bytes: 0,
-    integrity: "Cloudflare Edge"
+    integrity: "Cloudflare Edge",
   };
 }
 
@@ -120,11 +134,13 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     activated_devices: ["web-client"],
     current_device_id: "web-client",
     expired: false,
-    message: "Institutional web license active."
+    message: "Institutional web license active.",
   };
 }
 
-export async function activateLicense(_licenseKey: string): Promise<LicenseStatus> {
+export async function activateLicense(
+  _licenseKey: string,
+): Promise<LicenseStatus> {
   return getLicenseStatus();
 }
 

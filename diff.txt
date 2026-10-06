@@ -1,0 +1,214 @@
+﻿diff --git a/apps/web/src/main.tsx b/apps/web/src/main.tsx
+index a0d5316..05f3b81 100644
+--- a/apps/web/src/main.tsx
++++ b/apps/web/src/main.tsx
+@@ -100,29 +100,9 @@ import { SearchableSelect } from './components/SearchableSelect'
+ import './styles.css'
+ 
+ export function getApiBaseUrl(): string {
+-	try {
+-		const stored = localStorage.getItem('fmoh_api_url')
+-		if (stored && stored.trim()) {
+-			return stored.trim().replace(/\/+$/, '')
+-		}
+-	} catch {}
+-	const envUrl = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '')
++	const envUrl = (import.meta.env.VITE_API_BASE_URL ?? '').trim().replace(/\/+$/, '')
+ 	if (envUrl) return envUrl
+-	if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+-		return window.location.origin
+-	}
+-	return 'http://127.0.0.1:3001'
+-}
+-
+-export function setApiBaseUrl(url: string) {
+-	try {
+-		const cleaned = url.trim().replace(/\/+$/, '')
+-		if (cleaned) {
+-			localStorage.setItem('fmoh_api_url', cleaned)
+-		} else {
+-			localStorage.removeItem('fmoh_api_url')
+-		}
+-	} catch {}
++	return '/api'
+ }
+ 
+ type User = {
+@@ -185,10 +165,16 @@ const roleLabels: Record<RoleName, string> = {
+ const roleNavViews: Record<RoleName, AppView[]> = {
+ 	SYSTEM_ADMINISTRATOR: [
+ 		'dashboard',
++		'items',
++		'receipts',
++		'storage',
++		'ledger',
++		'bin-card',
++		'issues',
++		'returns',
+ 		'approvals',
+ 		'inspection',
+-		'returns',
+-		'issues',
++		'counts',
+ 		'adjustments',
+ 		'disposals',
+ 		'reports',
+@@ -252,7 +238,7 @@ const viewRules: Record<
+ 	dashboard: { anyPermissions: [permissions.DASHBOARD_READ] },
+ 	items: {
+ 		anyPermissions: [permissions.ITEM_READ],
+-		roles: ['STOREKEEPER', 'VIEWER_AUDITOR'],
++		roles: ['STOREKEEPER', 'VIEWER_AUDITOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	receipts: {
+ 		anyPermissions: [permissions.RECEIPT_WRITE, permissions.INSPECTION_WRITE],
+@@ -260,7 +246,7 @@ const viewRules: Record<
+ 	},
+ 	storage: {
+ 		anyPermissions: [permissions.STORAGE_WRITE],
+-		roles: ['STOREKEEPER'],
++		roles: ['STOREKEEPER', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	ledger: {
+ 		anyPermissions: [permissions.LEDGER_READ],
+@@ -268,7 +254,7 @@ const viewRules: Record<
+ 	},
+ 	'bin-card': {
+ 		anyPermissions: [permissions.ITEM_READ, permissions.LEDGER_READ],
+-		roles: ['STOREKEEPER', 'VIEWER_AUDITOR'],
++		roles: ['STOREKEEPER', 'VIEWER_AUDITOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+ 	issues: {
+ 		anyPermissions: [
+@@ -299,7 +285,7 @@ const viewRules: Record<
+ 		],
+ 		roles: ['INSPECTOR', 'SYSTEM_ADMINISTRATOR'],
+ 	},
+-	counts: { anyPermissions: [permissions.COUNT_WRITE], roles: ['STOREKEEPER'] },
++	counts: { anyPermissions: [permissions.COUNT_WRITE], roles: ['STOREKEEPER', 'SYSTEM_ADMINISTRATOR'] },
+ 	adjustments: {
+ 		anyPermissions: [permissions.ADJUSTMENT_APPROVE],
+ 		roles: ['SYSTEM_ADMINISTRATOR', 'APPROVER'],
+@@ -1001,9 +987,10 @@ async function request<T>(
+ 	token?: string,
+ 	init?: RequestInit
+ ): Promise<T> {
+-	const baseUrl = await apiBaseUrl()
++	const baseUrl = getApiBaseUrl()
+ 	const isFormData = init?.body instanceof FormData
+-	const response = await fetch(`${baseUrl}/api${path}`, {
++	const fullPath = path.startsWith('/') ? path : '/' + path
++	const response = await fetch(`${baseUrl}${fullPath}`, {
+ 		...init,
+ 		headers: {
+ 			...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+@@ -1085,10 +1072,6 @@ async function request<T>(
+ 	return result as T
+ }
+ 
+-async function apiBaseUrl() {
+-	return isDesktop() ? await desktopApiUrl() : getApiBaseUrl()
+-}
+-
+ async function friendlyResponseError(response: Response) {
+ 	const raw = await response.text()
+ 	if (!raw) return `Request failed with status ${response.status}.`
+@@ -1104,7 +1087,7 @@ async function friendlyResponseError(response: Response) {
+ }
+ 
+ function fileUrl(fileId?: string) {
+-	return fileId ? `${getApiBaseUrl()}/api/uploads/${fileId}` : ''
++	return fileId ? `${getApiBaseUrl()}/uploads/${fileId}` : ''
+ }
+ 
+ function cachedValue<T>(key: string, fallback: T): T {
+@@ -1239,6 +1222,11 @@ function useSmartTooltips() {
+ 		document.body.appendChild(tooltip)
+ 
+ 		const explain = (element: Element) => {
++			if (element.hasAttribute('data-no-tooltip')) {
++				element.removeAttribute('data-tooltip')
++				element.removeAttribute('title')
++				return ''
++			}
+ 			const existing =
+ 				element.getAttribute('data-tooltip') || element.getAttribute('title')
+ 			if (existing) {
+@@ -1420,9 +1408,6 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+ 	const [password, setPassword] = useState('Password123!')
+ 	const [error, setError] = useState('')
+ 	const [loading, setLoading] = useState(false)
+-	const [showServerConfig, setShowServerConfig] = useState(false)
+-	const [serverUrl, setServerUrl] = useState(getApiBaseUrl())
+-	const [testStatus, setTestStatus] = useState<string | null>(null)
+ 
+ 	async function submit(event: React.FormEvent) {
+ 		event.preventDefault()
+@@ -1517,59 +1502,14 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+ 						loadingLabel='Signing in...'
+ 					/>
+ 				</button>
+-				<div className='mt-4 pt-3 border-t border-border/60'>
+-					<button
+-						type='button'
+-						onClick={() => setShowServerConfig(!showServerConfig)}
+-						className='text-xs text-primary hover:underline flex items-center gap-1.5'
+-					>
+-						<Server size={13} />
+-						{showServerConfig ? 'Hide Server URL Settings' : 'Configure Server API URL'}
+-					</button>
+-					{showServerConfig && (
+-						<div className='mt-2 space-y-2 rounded-md bg-background/60 p-2.5 text-xs border border-border/50'>
+-							<label className='block font-medium text-foreground'>
+-								Backend API Base URL
+-								<input
+-									className='mt-1 w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs'
+-									value={serverUrl}
+-									onChange={(e) => {
+-										setServerUrl(e.target.value)
+-										setApiBaseUrl(e.target.value)
+-									}}
+-									placeholder='https://api.yourdomain.com'
+-								/>
+-							</label>
+-							<div className='flex items-center justify-between gap-2 pt-1'>
+-								<button
+-									type='button'
+-									onClick={async () => {
+-										setTestStatus('Testing...')
+-										try {
+-											const res = await fetch(`${getApiBaseUrl()}/api/health`, { method: 'GET' })
+-											if (res.ok) setTestStatus('Connected successfully!')
+-											else setTestStatus(`HTTP ${res.status}`)
+-										} catch (e: any) {
+-											setTestStatus(e.message || 'Connection failed')
+-										}
+-									}}
+-									className='rounded bg-secondary px-2 py-1 text-xs hover:bg-secondary/80 font-medium'
+-								>
+-									Test Connection
+-								</button>
+-								{testStatus && (
+-									<span className={`text-[11px] truncate ${testStatus.includes('success') ? 'text-success font-medium' : 'text-danger'}`}>
+-										{testStatus}
+-									</span>
+-								)}
+-							</div>
+-						</div>
+-					)}
+-				</div>
+-				<p className='mt-4 text-xs text-muted-foreground'>
+-					Seed users: admin, storekeeper, requester, approver, auditor
+-					@fmoh.local
+-				</p>
++				{import.meta.env.DEV && (
++					<div className='mt-4 pt-3 border-t border-border/60'>
++						<p className='text-xs text-muted-foreground'>
++							Seed users: admin, storekeeper, requester, approver, auditor
++							@fmoh.local
++						</p>
++					</div>
++				)}
+ 			</form>
+ 		</main>
+ 	)

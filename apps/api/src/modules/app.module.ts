@@ -46,7 +46,7 @@ import { ReturnService } from "./services/return.service";
     StorageService,
     FileUploadService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: PermissionsGuard }
-  ]
+    { provide: APP_GUARD, useClass: PermissionsGuard },
+  ],
 })
 export class AppModule {}

@@ -1,0 +1,371 @@
+﻿								<Recycle size={14} className='text-primary' /> Authorize Disposals ({data.pendingDisposalsCount ?? 0})
+							</button>
+						</>
+					)}
+					{user.role === 'INSPECTOR' && (
+						<>
+							<button
+								onClick={() => onNavigate?.('inspection')}
+								className='inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/20'
+							>
+								<ClipboardCheck size={14} /> Goods Receiving Inspections ({data.pendingInspectionCount ?? 0})
+							</button>
+							<button
+								onClick={() => onNavigate?.('returns')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<Recycle size={14} className='text-primary' /> Inspect Returned Property (Model 23)
+							</button>
+						</>
+					)}
+					{user.role === 'DEPARTMENT_USER' && (
+						<>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='inline-flex items-center gap-1.5 rounded border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20'
+							>
+								<Plus size={14} /> + Create Stock Request
+							</button>
+							<button
+								onClick={() => onNavigate?.('returns')}
+								className='inline-flex items-center gap-1.5 rounded border border-border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary/50 hover:bg-primary/5'
+							>
+								<Warehouse size={14} className='text-primary' /> Property in My Custody
+							</button>
+						</>
+					)}
+					{(user.role === 'SYSTEM_ADMINISTRATOR' || user.role === 'VIEWER_AUDITOR') && (
+						<>
+							<button
+								onClick={() => onNavigate?.('receipts')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Receiving
+							</button>
+							<button
+								onClick={() => onNavigate?.('storage')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Storage & Coding
+							</button>
+							<button
+								onClick={() => onNavigate?.('bin-card')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Bin Card
+							</button>
+							<button
+								onClick={() => onNavigate?.('issues')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Issuance
+							</button>
+							<button
+								onClick={() => onNavigate?.('approvals')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Approvals
+							</button>
+							<button
+								onClick={() => onNavigate?.('inspection')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Inspection
+							</button>
+							<button
+								onClick={() => onNavigate?.('items')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Fleet & Assets
+							</button>
+							<button
+								onClick={() => onNavigate?.('reports')}
+								className='rounded border border-border bg-background px-2.5 py-1.5 text-xs font-medium hover:bg-muted'
+							>
+								Reports
+							</button>
+						</>
+					)}
+				</div>
+			</div>
+
+			{/* STOREKEEPER ROLE VIEW */}
+			{user.role === 'STOREKEEPER' && (
+				<>
+					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+						<Stat
+							label='Inventory value'
+							value={formatNumber(data.totalInventoryValue, 2)}
+							description='Total value on hand'
+							tone='success'
+							icon={CircleDollarSign}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Item Master'
+						/>
+						<Stat
+							label='Available stock'
+							value={formatNumber(data.availableStock)}
+							description={`${formatNumber(data.currentStock)} current units`}
+							tone='info'
+							icon={Warehouse}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Balances'
+						/>
+						<Stat
+							label='Batches awaiting storage'
+							value={data.pendingStorageAllocation ?? 0}
+							description='Accepted batches ready for bin allocation'
+							tone={(data.pendingStorageAllocation ?? 0) > 0 ? 'warning' : 'default'}
+							icon={MapPin}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Allocate storage'
+						/>
+						<Stat
+							label='Pending Goods Receipts'
+							value={data.pendingInspectionCount ?? 0}
+							description='Procurement receipts awaiting verification'
+							tone={(data.pendingInspectionCount ?? 0) > 0 ? 'warning' : 'default'}
+							icon={PackagePlus}
+							onClick={() => onNavigate?.('receipts')}
+							actionHint='Review GRNs'
+						/>
+					</div>
+
+					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'>
+						{vehiclesCard}
+						<Stat
+							label='Low stock alerts'
+							value={data.lowStock?.length ?? 0}
+							description='Items at or below reorder level'
+							tone={(data.lowStock?.length ?? 0) > 0 ? 'warning' : 'success'}
+							icon={AlertTriangle}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Review levels'
+						/>
+						<Stat
+							label='Stock-outs'
+							value={data.stockOuts?.length ?? 0}
+							description='Items with no available balance'
+							tone={(data.stockOuts?.length ?? 0) > 0 ? 'danger' : 'success'}
+							icon={PackageSearch}
+							onClick={() => onNavigate?.('items')}
+							actionHint='View zero stock'
+						/>
+						<Stat
+							label='Active catalog items'
+							value={data.totalItems}
+							description='Registered items and assets'
+							icon={Boxes}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Manage items'
+						/>
+					</div>
+				</>
+			)}
+
+			{/* APPROVER ROLE VIEW */}
+			{user.role === 'APPROVER' && (
+				<>
+					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+						<Stat
+							label='Pending Issue Approvals'
+							value={data.pendingApprovalCount ?? 0}
+							description='Requisitions awaiting managerial approval'
+							tone={(data.pendingApprovalCount ?? 0) > 0 ? 'warning' : 'success'}
+							icon={TimerReset}
+							onClick={() => onNavigate?.('approvals')}
+							actionHint='Open approval desk'
+						/>
+						<Stat
+							label='Pending Disposals'
+							value={data.pendingDisposalsCount ?? 0}
+							description='Decommissioning & write-off requests'
+							tone={(data.pendingDisposalsCount ?? 0) > 0 ? 'warning' : 'default'}
+							icon={Recycle}
+							onClick={() => onNavigate?.('disposals')}
+							actionHint='Review disposals'
+						/>
+						<Stat
+							label='Total Inventory Value'
+							value={formatNumber(data.totalInventoryValue, 2)}
+							description='Current institutional asset balance'
+							tone='success'
+							icon={CircleDollarSign}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Valuation'
+						/>
+						{vehiclesCard}
+					</div>
+
+					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+						<Stat
+							label='Available Stock Units'
+							value={formatNumber(data.availableStock)}
+							description='Stock ready for issuance'
+							tone='info'
+							icon={Warehouse}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Check balances'
+						/>
+						<Stat
+							label='Low Stock Alerts'
+							value={data.lowStock?.length ?? 0}
+							description='Reorder threshold reached'
+							tone={(data.lowStock?.length ?? 0) > 0 ? 'warning' : 'success'}
+							icon={AlertTriangle}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Review items'
+						/>
+						<Stat
+							label='Order Fulfillment Rate'
+							value={kpiPercent(data.kpis?.orderFulfillmentRate)}
+							description='Institutional fulfillment performance'
+							tone='success'
+							icon={PackageCheck}
+							onClick={() => onNavigate?.('reports')}
+							actionHint='View reports'
+						/>
+					</div>
+				</>
+			)}
+
+			{/* INSPECTOR ROLE VIEW */}
+			{user.role === 'INSPECTOR' && (
+				<>
+					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+						<Stat
+							label='Pending Goods Inspections'
+							value={data.pendingInspectionCount ?? 0}
+							description='GRN shipments awaiting verification'
+							tone={(data.pendingInspectionCount ?? 0) > 0 ? 'warning' : 'success'}
+							icon={ClipboardCheck}
+							onClick={() => onNavigate?.('inspection')}
+							actionHint='Start inspection'
+						/>
+						<Stat
+							label='Returned Property Queue'
+							value={0}
+							description='Department returns awaiting condition assessment'
+							tone='info'
+							icon={Recycle}
+							onClick={() => onNavigate?.('returns')}
+							actionHint='Inspect returns'
+						/>
+						<Stat
+							label='Active Catalog Items'
+							value={data.totalItems}
+							description='Active equipment, vehicles & goods'
+							icon={Boxes}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Browse catalog'
+						/>
+						{vehiclesCard}
+					</div>
+
+					<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3'>
+						<Stat
+							label='Inspection Pass Rate'
+							value='98.5%'
+							description='Institutional quality standard compliance'
+							tone='success'
+							icon={ShieldCheck}
+							onClick={() => onNavigate?.('reports')}
+							actionHint='Quality reports'
+						/>
+						<Stat
+							label='Verified Stock Batches'
+							value={formatNumber(data.availableStock)}
+							description='Items passed and released for storage'
+							tone='info'
+							icon={Warehouse}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Storage view'
+						/>
+						<Stat
+							label='Inspection Reports'
+							value='Model 19 / 23'
+							description='Official inspection certificates'
+							icon={FileDown}
+							onClick={() => onNavigate?.('reports')}
+							actionHint='Generate reports'
+						/>
+					</div>
+				</>
+			)}
+
+			{/* DEPARTMENT USER ROLE VIEW */}
+			{user.role === 'DEPARTMENT_USER' && (
+				<>
+					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+						<Stat
+							label='My Stock Requests'
+							value={data.pendingApprovalCount ?? 0}
+							description='Active requisitions in progress'
+							tone='info'
+							icon={PackagePlus}
+							onClick={() => onNavigate?.('issues')}
+							actionHint='Track requests'
+						/>
+						<Stat
+							label='Assets in Custody'
+							value={data.totalCustodyAssigned ?? 0}
+							description='Equipment & vehicles issued to department'
+							tone='success'
+							icon={Warehouse}
+							onClick={() => onNavigate?.('returns')}
+							actionHint='Custody records'
+						/>
+						{vehiclesCard}
+						<Stat
+							label='Available Catalog Items'
+							value={data.totalItems}
+							description='Supplies available to request'
+							icon={Boxes}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Browse items'
+						/>
+					</div>
+				</>
+			)}
+
+			{/* SYSTEM ADMINISTRATOR ROLE VIEW (100% Full Combined Visibility) */}
+			{user.role === 'SYSTEM_ADMINISTRATOR' && (
+				<>
+					<div className='grid gap-3 md:grid-cols-2 xl:grid-cols-4'>
+						<Stat
+							label='Inventory value'
+							value={formatNumber(data.totalInventoryValue, 2)}
+							description='Total value on hand'
+							tone='success'
+							icon={CircleDollarSign}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Item Master'
+						/>
+						<Stat
+							label='Available stock'
+							value={formatNumber(data.availableStock)}
+							description={`${formatNumber(data.currentStock)} current units`}
+							tone='info'
+							icon={Warehouse}
+							onClick={() => onNavigate?.('storage')}
+							actionHint='Location balances'
+						/>
+						<Stat
+							label='Low stock'
+							value={data.lowStock?.length ?? 0}
+							description='Items at or below reorder level'
+							tone={(data.lowStock?.length ?? 0) > 0 ? 'warning' : 'success'}
+							icon={AlertTriangle}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Review low stock'
+						/>
+						<Stat
+							label='Stock-outs'
+							value={data.stockOuts?.length ?? 0}
+							description='Items with no available balance'
+							tone={(data.stockOuts?.length ?? 0) > 0 ? 'danger' : 'success'}
+							icon={PackageSearch}
+							onClick={() => onNavigate?.('items')}
+							actionHint='Review stock-outs'
+						/>
+

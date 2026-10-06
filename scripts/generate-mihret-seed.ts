@@ -30,20 +30,31 @@ type SeedItem = {
 };
 
 const workbookPath = process.argv[2] ?? "D:\\not\\INVENTORY 2018_ MIHRET.xlsx";
-const outputPath = process.argv[3] ?? "apps/api/prisma/data/mihret-items.seed.json";
+const outputPath =
+  process.argv[3] ?? "apps/api/prisma/data/mihret-items.seed.json";
 
 function text(value: unknown) {
-  return String(value ?? "").trim().replace(/\s+/g, " ");
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function numberValue(value: unknown) {
-  const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+  const parsed = Number(
+    String(value ?? "")
+      .replace(/,/g, "")
+      .trim(),
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function cleanCode(raw: string, fallback: string) {
   if (!raw || /^none$/i.test(raw) || /^n\/a$/i.test(raw)) return fallback;
-  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9._/-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const cleaned = raw
+    .toUpperCase()
+    .replace(/[^A-Z0-9._/-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
   return cleaned || fallback;
 }
 
@@ -81,7 +92,11 @@ async function main() {
     const row = sheet.getRow(rowNumber);
     const serial = text(row.getCell(1).value);
     const description = text(row.getCell(2).value);
-    if (!/^\d+$/.test(serial) || !description || /^total\b/i.test(description)) {
+    if (
+      !/^\d+$/.test(serial) ||
+      !description ||
+      /^total\b/i.test(description)
+    ) {
       skipped += 1;
       continue;
     }
@@ -94,7 +109,9 @@ async function main() {
     const sourceOfFund = text(row.getCell(15).value);
     const fallbackCode = `MIHRET-${String(serial).padStart(4, "0")}`;
     const baseCode = cleanCode(partNumber || serial, fallbackCode);
-    const candidateCode = seenBaseCodes.has(baseCode) ? `${baseCode}-${serial}` : baseCode;
+    const candidateCode = seenBaseCodes.has(baseCode)
+      ? `${baseCode}-${serial}`
+      : baseCode;
     const code = uniqueCode(candidateCode, usedCodes);
     const levels = Math.max(finalReportQuantity, physicalBalance, 1);
     seenBaseCodes.add(baseCode);
@@ -110,7 +127,8 @@ async function main() {
       unitPrice,
       sourceOfFund: sourceOfFund || null,
       categoryName: "Manual Inventory Import",
-      categoryDescription: "Items imported from the 2018 MIHRET manual inventory workflow",
+      categoryDescription:
+        "Items imported from the 2018 MIHRET manual inventory workflow",
       kind: "GENERAL_SUPPLY",
       defaultStoreCode: "MAIN",
       defaultStoreName: "Main Store",
@@ -122,7 +140,11 @@ async function main() {
       expiryTrackingRequired: false,
       barcodeRequired: true,
       active: true,
-      needsParameterReview: !sourceOfFund || !partNumber || finalReportQuantity <= 0 || physicalBalance <= 0
+      needsParameterReview:
+        !sourceOfFund ||
+        !partNumber ||
+        finalReportQuantity <= 0 ||
+        physicalBalance <= 0,
     });
   }
 
@@ -140,13 +162,19 @@ async function main() {
       minimumStock: 0,
       batchTrackingRequired: false,
       expiryTrackingRequired: false,
-      barcodeRequired: true
+      barcodeRequired: true,
     },
-    items
+    items,
   };
 
   await writeFile(resolve(outputPath), `${JSON.stringify(payload, null, 2)}\n`);
-  console.log(JSON.stringify({ outputPath: resolve(outputPath), items: items.length, skipped }, null, 2));
+  console.log(
+    JSON.stringify(
+      { outputPath: resolve(outputPath), items: items.length, skipped },
+      null,
+      2,
+    ),
+  );
 }
 
 main().catch((error) => {

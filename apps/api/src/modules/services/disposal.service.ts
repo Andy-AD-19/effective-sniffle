@@ -5,7 +5,11 @@ import { LedgerService } from "./ledger.service";
 
 @Injectable()
 export class DisposalService {
-  constructor(private readonly prisma: PrismaService, private readonly ledger: LedgerService, private readonly audit: AuditService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: LedgerService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(actorId: string, input: any) {
     const disposal = await this.prisma.disposalRequest.create({
@@ -22,40 +26,70 @@ export class DisposalService {
             storeId: line.storeId,
             quantity: line.quantity,
             batchNumber: line.batchNumber,
-            expiryDate: line.expiryDate ? new Date(line.expiryDate) : undefined
-          }))
-        }
+            expiryDate: line.expiryDate ? new Date(line.expiryDate) : undefined,
+          })),
+        },
       },
-      include: { lines: { include: { item: true } } }
+      include: { lines: { include: { item: true } } },
     });
-    await this.audit.record({ actorId, action: "disposal.create", entityType: "DisposalRequest", entityId: disposal.id, after: disposal });
+    await this.audit.record({
+      actorId,
+      action: "disposal.create",
+      entityType: "DisposalRequest",
+      entityId: disposal.id,
+      after: disposal,
+    });
     return disposal;
   }
 
   async approve(actorId: string, id: string, input: any) {
     const disposal = await this.prisma.disposalRequest.update({
       where: { id },
-      data: { status: "APPROVED", committeeNotes: input.committeeNotes ?? input.notes },
-      include: { lines: true }
+      data: {
+        status: "APPROVED",
+        committeeNotes: input.committeeNotes ?? input.notes,
+      },
+      include: { lines: true },
     });
-    await this.audit.record({ actorId, action: "disposal.approve", entityType: "DisposalRequest", entityId: id, after: disposal });
+    await this.audit.record({
+      actorId,
+      action: "disposal.approve",
+      entityType: "DisposalRequest",
+      entityId: id,
+      after: disposal,
+    });
     return disposal;
   }
 
   async reject(actorId: string, id: string, input: any) {
-    const reason = input?.reason?.trim() ?? input?.notes?.trim() ?? "Disposal request rejected by Approver";
+    const reason =
+      input?.reason?.trim() ??
+      input?.notes?.trim() ??
+      "Disposal request rejected by Approver";
     const disposal = await this.prisma.disposalRequest.update({
       where: { id },
       data: { status: "REJECTED", committeeNotes: reason },
-      include: { lines: true }
+      include: { lines: true },
     });
-    await this.audit.record({ actorId, action: "disposal.reject", entityType: "DisposalRequest", entityId: id, after: disposal });
+    await this.audit.record({
+      actorId,
+      action: "disposal.reject",
+      entityType: "DisposalRequest",
+      entityId: id,
+      after: disposal,
+    });
     return disposal;
   }
 
   async dispose(actorId: string, id: string, input: any) {
-    const disposal = await this.prisma.disposalRequest.findUniqueOrThrow({ where: { id }, include: { lines: true } });
-    if (disposal.status !== "APPROVED") throw new BadRequestException("Disposal must be approved before stock is deducted");
+    const disposal = await this.prisma.disposalRequest.findUniqueOrThrow({
+      where: { id },
+      include: { lines: true },
+    });
+    if (disposal.status !== "APPROVED")
+      throw new BadRequestException(
+        "Disposal must be approved before stock is deducted",
+      );
     for (const line of disposal.lines) {
       await this.ledger.postDisposal(actorId, disposal.id, {
         itemId: line.itemId,
@@ -63,7 +97,7 @@ export class DisposalService {
         batchId: line.batchId,
         storageLocationId: line.storageLocationId,
         batchNumber: line.batchNumber,
-        expiryDate: line.expiryDate
+        expiryDate: line.expiryDate,
       });
     }
     const updated = await this.prisma.disposalRequest.update({
@@ -72,15 +106,24 @@ export class DisposalService {
         status: "DISPOSED",
         method: input.method,
         disposedAt: input.disposedAt ? new Date(input.disposedAt) : new Date(),
-        responsibleParties: input.responsibleParties
-      }
+        responsibleParties: input.responsibleParties,
+      },
     });
-    await this.audit.record({ actorId, action: "disposal.dispose", entityType: "DisposalRequest", entityId: id, after: updated });
+    await this.audit.record({
+      actorId,
+      action: "disposal.dispose",
+      entityType: "DisposalRequest",
+      entityId: id,
+      after: updated,
+    });
     return updated;
   }
 
   list() {
-    return this.prisma.disposalRequest.findMany({ include: { lines: { include: { item: true } } }, orderBy: { createdAt: "desc" } });
+    return this.prisma.disposalRequest.findMany({
+      include: { lines: { include: { item: true } } },
+      orderBy: { createdAt: "desc" },
+    });
   }
 
   private async nextDisposalNumber() {

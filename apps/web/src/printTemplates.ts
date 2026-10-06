@@ -81,7 +81,12 @@ function escapeHtml(value: unknown): string {
     .replaceAll("'", "&#39;");
 }
 
-function formatDateDisplay(value?: string | Date): { day: string; month: string; year: string; full: string } {
+function formatDateDisplay(value?: string | Date): {
+  day: string;
+  month: string;
+  year: string;
+  full: string;
+} {
   const d = value ? new Date(value) : new Date();
   if (Number.isNaN(d.getTime())) {
     return { day: "—", month: "—", year: "—", full: "—" };
@@ -95,12 +100,14 @@ function formatDateDisplay(value?: string | Date): { day: string; month: string;
 function fontClass(text: unknown): string {
   if (!text) return "en";
   const str = String(text);
-  const hasEthiopic = /[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]/.test(str);
+  const hasEthiopic =
+    /[\u1200-\u137F\u1380-\u139F\u2D80-\u2DDF\uAB00-\uAB2F]/.test(str);
   return hasEthiopic ? "am" : "en";
 }
 
 export function buildModel22PrintDocument(record: SivPrintRecord): string {
-  const voucherNumber = record.voucher?.voucherNumber ?? record.requestNumber ?? "№511017";
+  const voucherNumber =
+    record.voucher?.voucherNumber ?? record.requestNumber ?? "№511017";
   const departmentName = record.department?.name ?? "—";
   const requestNumber = record.requestNumber ?? "—";
   const purpose = record.purpose ?? departmentName;
@@ -109,19 +116,27 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
     record.materialReceipt?.receivedBy?.fullName?.trim() ||
     record.requestedBy?.fullName?.trim() ||
     "";
-  const dateInfo = formatDateDisplay(record.voucher?.issuedAt ?? record.voucher?.createdAt ?? record.createdAt);
+  const dateInfo = formatDateDisplay(
+    record.voucher?.issuedAt ?? record.voucher?.createdAt ?? record.createdAt,
+  );
 
   const lines = record.lines ?? [];
   const primaryLine = lines[0];
   const primaryItem = primaryLine?.item;
 
   const expRegistryNo = "1";
-  const incomingGoodsNo = primaryLine?.batchNumber ?? primaryItem?.code ?? "GRN-2026-001";
-  const categoryNames = lines
-    .map((l) => (typeof l.item?.category === "string" ? l.item.category : l.item?.category?.name))
-    .filter(Boolean)
-    .filter((v, i, a) => a.indexOf(v) === i)
-    .join(", ") || "General Stock";
+  const incomingGoodsNo =
+    primaryLine?.batchNumber ?? primaryItem?.code ?? "GRN-2026-001";
+  const categoryNames =
+    lines
+      .map((l) =>
+        typeof l.item?.category === "string"
+          ? l.item.category
+          : l.item?.category?.name,
+      )
+      .filter(Boolean)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .join(", ") || "General Stock";
 
   const storeName =
     primaryLine?.storageLocation?.store?.name ??
@@ -135,7 +150,8 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
     record.voucher?.ledgerEntries?.[0]?.shelfCode ??
     "2";
 
-  const outgoingGoodsNo = record.voucher?.voucherNumber ?? record.requestNumber ?? "SIV-001";
+  const outgoingGoodsNo =
+    record.voucher?.voucherNumber ?? record.requestNumber ?? "SIV-001";
 
   let totalAmount = 0;
   const renderedRows: string[] = [];
@@ -149,16 +165,33 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
     const matchingEntry = record.voucher?.ledgerEntries?.find(
       (e: any) =>
         (e.itemId && (e.itemId === line.itemId || e.itemId === item.id)) ||
-        (e.item?.id && (e.item.id === line.itemId || e.item.id === item.id))
+        (e.item?.id && (e.item.id === line.itemId || e.item.id === item.id)),
     );
-    const ledgerUnitPrice = matchingEntry?.unitCost ? Number(matchingEntry.unitCost) : 0;
-    const batchUnitPrice = item.stockBatches?.[0]?.unitCost ? Number(item.stockBatches[0].unitCost) : 0;
-    const grnUnitPrice = item.grnLines?.[0]?.unitPrice ? Number(item.grnLines[0].unitPrice) : 0;
-    const itemUnitPrice = item.unitPrice ? Number(item.unitPrice) : (item.unitCost ? Number(item.unitCost) : 0);
+    const ledgerUnitPrice = matchingEntry?.unitCost
+      ? Number(matchingEntry.unitCost)
+      : 0;
+    const batchUnitPrice = item.stockBatches?.[0]?.unitCost
+      ? Number(item.stockBatches[0].unitCost)
+      : 0;
+    const grnUnitPrice = item.grnLines?.[0]?.unitPrice
+      ? Number(item.grnLines[0].unitPrice)
+      : 0;
+    const itemUnitPrice = item.unitPrice
+      ? Number(item.unitPrice)
+      : item.unitCost
+        ? Number(item.unitCost)
+        : 0;
     const lineUnitPrice = line.unitPrice ? Number(line.unitPrice) : 0;
 
-    const rawPrice = lineUnitPrice || itemUnitPrice || ledgerUnitPrice || batchUnitPrice || grnUnitPrice || 0;
-    const unitPriceNum = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
+    const rawPrice =
+      lineUnitPrice ||
+      itemUnitPrice ||
+      ledgerUnitPrice ||
+      batchUnitPrice ||
+      grnUnitPrice ||
+      0;
+    const unitPriceNum =
+      Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
 
     const lineTotal = qty * unitPriceNum;
     totalAmount += lineTotal;
@@ -169,7 +202,10 @@ export function buildModel22PrintDocument(record: SivPrintRecord): string {
     const totalCents = Math.round((lineTotal - totalBirr) * 100);
 
     const rawDesc = item.description ?? item.code ?? "Institutional Item";
-    const cleanDesc = (typeof rawDesc === "string" && rawDesc.startsWith("item-")) ? `Item ${rawDesc.slice(5)}` : rawDesc;
+    const cleanDesc =
+      typeof rawDesc === "string" && rawDesc.startsWith("item-")
+        ? `Item ${rawDesc.slice(5)}`
+        : rawDesc;
     const desc = escapeHtml(cleanDesc);
     const model = escapeHtml(item.modelNumber ?? "—");
     const serial = escapeHtml(item.serialNumber ?? line.batchNumber ?? "—");
@@ -1000,7 +1036,8 @@ export type GrnPrintRecord = {
 
 export function buildModel19PrintDocument(record: GrnPrintRecord): string {
   const grnNumber = record.grnNumber ?? "GRN-2026-001";
-  const departmentName = record.department?.name ?? "Federal Ministry of Health";
+  const departmentName =
+    record.department?.name ?? "Federal Ministry of Health";
   const supplierName =
     record.supplierDonor?.name ??
     record.purchaseOrderRef ??
@@ -1018,22 +1055,29 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
   const primaryItem = primaryLine?.item;
 
   const expRegistryNo = "1";
-  const incomingGoodsNo = primaryLine?.batchNumber ?? primaryItem?.code ?? grnNumber;
+  const incomingGoodsNo =
+    primaryLine?.batchNumber ?? primaryItem?.code ?? grnNumber;
   const categoryNames =
     lines
-      .map((l) => (typeof l.item?.category === "string" ? l.item.category : l.item?.category?.name))
+      .map((l) =>
+        typeof l.item?.category === "string"
+          ? l.item.category
+          : l.item?.category?.name,
+      )
       .filter(Boolean)
       .filter((v, i, a) => a.indexOf(v) === i)
       .join(", ") || "General Stock";
 
   const storeName =
-    primaryLine?.stockBatches?.[0]?.locationBalances?.[0]?.storageLocation?.store?.name ??
+    primaryLine?.stockBatches?.[0]?.locationBalances?.[0]?.storageLocation
+      ?.store?.name ??
     primaryItem?.defaultLocation?.name ??
     "Main Store";
 
   const shelfNo =
     primaryLine?.inspection?.shelfCode ??
-    primaryLine?.stockBatches?.[0]?.locationBalances?.[0]?.storageLocation?.shelfNumber ??
+    primaryLine?.stockBatches?.[0]?.locationBalances?.[0]?.storageLocation
+      ?.shelfNumber ??
     "A1";
 
   let totalAmount = 0;
@@ -1053,14 +1097,23 @@ export function buildModel19PrintDocument(record: GrnPrintRecord): string {
     const totalCents = Math.round((lineTotal - totalBirr) * 100);
 
     let displayDesc = item.description || "";
-    if (!displayDesc || displayDesc.startsWith("Item item-") || displayDesc.startsWith("item-")) {
+    if (
+      !displayDesc ||
+      displayDesc.startsWith("Item item-") ||
+      displayDesc.startsWith("item-")
+    ) {
       displayDesc = item.code || line.itemId || "Institutional Item";
     }
-    const itemCode = item.code || (line.itemId ? String(line.itemId).replace(/^item-/, "") : "");
-    const showCodeSubtitle = itemCode && itemCode.toLowerCase() !== displayDesc.toLowerCase();
+    const itemCode =
+      item.code ||
+      (line.itemId ? String(line.itemId).replace(/^item-/, "") : "");
+    const showCodeSubtitle =
+      itemCode && itemCode.toLowerCase() !== displayDesc.toLowerCase();
 
     const desc = escapeHtml(displayDesc);
-    const codeTag = showCodeSubtitle ? `<div class="code-sub">Code: ${escapeHtml(itemCode)}</div>` : "";
+    const codeTag = showCodeSubtitle
+      ? `<div class="code-sub">Code: ${escapeHtml(itemCode)}</div>`
+      : "";
     const model = escapeHtml(item.modelNumber ?? "—");
     const serial = escapeHtml(line.batchNumber ?? item.serialNumber ?? "—");
     const pageFrom = "1";
@@ -1717,5 +1770,3 @@ export function printHtmlDocument(html: string) {
   };
   iframe.srcdoc = html;
 }
-
-

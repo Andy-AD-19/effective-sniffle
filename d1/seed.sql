@@ -111,3 +111,7 @@ INSERT OR REPLACE INTO "StockAdjustment" ("id", "adjustmentNumber", "itemId", "b
 
 INSERT OR REPLACE INTO "StockDisposal" ("id", "disposalNumber", "itemId", "batchId", "quantity", "reasonId", "status") VALUES
 ('disp-seed-01', 'DSP-2026-001', 'item-screw', 'batch-screw-01', 2, 'disp-03', 'PENDING_APPROVAL');
+
+-- 15. Global App Settings
+INSERT OR REPLACE INTO "AppSetting" ("key", "value") VALUES ('theme', 'light');
+

@@ -4,7 +4,7 @@ export const roles = [
   "DEPARTMENT_USER",
   "APPROVER",
   "INSPECTOR",
-  "VIEWER_AUDITOR"
+  "VIEWER_AUDITOR",
 ] as const;
 
 export type RoleName = (typeof roles)[number];
@@ -19,6 +19,7 @@ export const permissions = {
   INSPECTION_WRITE: "inspection:write",
   STORAGE_WRITE: "storage:write",
   REQUEST_CREATE: "request:create",
+  ISSUE_CREATE: "issue:create", // Alias for request:create
   ISSUE_APPROVE: "issue:approve",
   ISSUE_EXECUTE: "issue:execute",
   RETURN_CREATE: "return:create",
@@ -30,28 +31,13 @@ export const permissions = {
   ADJUSTMENT_APPROVE: "adjustment:approve",
   DISPOSAL_WRITE: "disposal:write",
   DISPOSAL_APPROVE: "disposal:approve",
-  REPORT_READ: "report:read"
+  REPORT_READ: "report:read",
 } as const;
 
 export type Permission = (typeof permissions)[keyof typeof permissions];
 
 export const rolePermissions: Record<RoleName, Permission[]> = {
-  SYSTEM_ADMINISTRATOR: [
-    permissions.USER_MANAGE,
-    permissions.AUDIT_READ,
-    permissions.ITEM_READ,
-    permissions.ITEM_DEACTIVATE,
-    permissions.ISSUE_APPROVE,
-    permissions.INSPECTION_WRITE,
-    permissions.RETURN_CREATE,
-    permissions.RETURN_READ,
-    permissions.RETURN_INSPECT,
-    permissions.LEDGER_READ,
-    permissions.DASHBOARD_READ,
-    permissions.ADJUSTMENT_APPROVE,
-    permissions.DISPOSAL_APPROVE,
-    permissions.REPORT_READ
-  ],
+  SYSTEM_ADMINISTRATOR: Object.values(permissions),
   STOREKEEPER: [
     permissions.ITEM_READ,
     permissions.ITEM_WRITE,
@@ -65,14 +51,15 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
     permissions.DASHBOARD_READ,
     permissions.COUNT_WRITE,
     permissions.DISPOSAL_WRITE,
-    permissions.REPORT_READ
+    permissions.REPORT_READ,
   ],
   DEPARTMENT_USER: [
     permissions.ITEM_READ,
     permissions.REQUEST_CREATE,
+    permissions.ISSUE_CREATE,
     permissions.RETURN_CREATE,
     permissions.RETURN_READ,
-    permissions.DASHBOARD_READ
+    permissions.DASHBOARD_READ,
   ],
   APPROVER: [
     permissions.ITEM_READ,
@@ -82,7 +69,7 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
     permissions.RETURN_READ,
     permissions.LEDGER_READ,
     permissions.DASHBOARD_READ,
-    permissions.REPORT_READ
+    permissions.REPORT_READ,
   ],
   INSPECTOR: [
     permissions.ITEM_READ,
@@ -91,7 +78,7 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
     permissions.RETURN_READ,
     permissions.LEDGER_READ,
     permissions.DASHBOARD_READ,
-    permissions.REPORT_READ
+    permissions.REPORT_READ,
   ],
   VIEWER_AUDITOR: [
     permissions.ITEM_READ,
@@ -99,8 +86,8 @@ export const rolePermissions: Record<RoleName, Permission[]> = {
     permissions.RETURN_READ,
     permissions.LEDGER_READ,
     permissions.DASHBOARD_READ,
-    permissions.REPORT_READ
-  ]
+    permissions.REPORT_READ,
+  ],
 };
 
 export const reportTypes = [
@@ -120,7 +107,7 @@ export const reportTypes = [
   "physical-count",
   "reconciliation-adjustment",
   "asset-custody",
-  "audit-log"
+  "audit-log",
 ] as const;
 
 export type ReportType = (typeof reportTypes)[number];
@@ -142,12 +129,9 @@ export const roleReportTypes: Record<RoleName, ReportType[]> = {
     "grn",
     "store-issue-voucher",
     "physical-count",
-    "asset-custody"
+    "asset-custody",
   ],
-  DEPARTMENT_USER: [
-    "issue",
-    "store-issue-voucher"
-  ],
+  DEPARTMENT_USER: ["issue", "store-issue-voucher"],
   APPROVER: [
     "stock-status",
     "issue",
@@ -155,7 +139,7 @@ export const roleReportTypes: Record<RoleName, ReportType[]> = {
     "disposal",
     "physical-count",
     "reconciliation-adjustment",
-    "store-issue-voucher"
+    "store-issue-voucher",
   ],
   INSPECTOR: [
     "stock-status",
@@ -163,9 +147,9 @@ export const roleReportTypes: Record<RoleName, ReportType[]> = {
     "issue",
     "balance",
     "grn",
-    "store-issue-voucher"
+    "store-issue-voucher",
   ],
-  VIEWER_AUDITOR: [...reportTypes]
+  VIEWER_AUDITOR: [...reportTypes],
 };
 
 export type QrLabelPayload = {
@@ -174,7 +158,9 @@ export type QrLabelPayload = {
   itemName?: string;
   batchNumber?: string | null;
   lotNumber?: string | null;
+  receivedDate?: string | Date | null;
   expiryDate?: string | Date | null;
+  purpose?: string | null;
   store?: string;
   gln?: string;
   locationCode?: string;
@@ -191,11 +177,20 @@ export type QrLabelPayload = {
 };
 
 function qrValue(value: unknown) {
-  return value === undefined || value === null || value === "" ? "N/A" : String(value);
+  return value === undefined || value === null || value === ""
+    ? ""
+    : String(value);
+}
+
+function displayValue(value: unknown) {
+  return value === undefined || value === null || value === ""
+    ? "—"
+    : String(value);
 }
 
 function escapeQrHtml(value: unknown) {
-  const text = value === undefined || value === null || value === "" ? "N/A" : String(value);
+  const text =
+    value === undefined || value === null || value === "" ? "" : String(value);
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -204,45 +199,67 @@ function escapeQrHtml(value: unknown) {
     .replaceAll("'", "&#39;");
 }
 
-function formatQrDate(value: QrLabelPayload["expiryDate"]) {
-  if (!value) return "N/A";
+function formatQrDate(value: QrLabelPayload["expiryDate"], fallback = "") {
+  if (!value) return fallback;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "2-digit" });
+  return date.toLocaleDateString("en-GB", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
 }
 
 export function buildQrLabelScanText(payload: QrLabelPayload) {
-  const itemName = qrValue(payload.itemName);
-  const store = qrValue(payload.store);
-  const expiry = formatQrDate(payload.expiryDate);
-  const elementString = qrValue(payload.gs1?.elementString);
+  const itemName = displayValue(payload.itemName);
+  const store = displayValue(payload.store);
+  const received = formatQrDate(payload.receivedDate, "—");
+  const expiry = formatQrDate(payload.expiryDate, "—");
+  const purpose = displayValue(payload.purpose);
+  const elementString = displayValue(payload.gs1?.elementString);
   return [
     `This data represents an FMOH Inventory record for a ${itemName} stored in the ${store}.`,
     "",
     "ITEM DETAILS",
     `- Item Name: ${itemName}`,
-    `- Item Code: ${qrValue(payload.itemCode)}`,
-    `- GTIN: ${qrValue(payload.gtin)}`,
-    `- Quantity: ${qrValue(payload.quantity)}`,
+    `- Item Code: ${displayValue(payload.itemCode)}`,
+    `- GTIN: ${displayValue(payload.gtin)}`,
+    `- Purpose/Use: ${purpose}`,
+    `- Quantity: ${displayValue(payload.quantity)}`,
     "",
     "BATCH AND EXPIRY",
-    `- Batch/Lot: ${qrValue(payload.lotNumber ?? payload.batchNumber)}`,
+    `- Batch/Lot: ${displayValue(payload.lotNumber ?? payload.batchNumber)}`,
+    `- Received Date: ${received}`,
     `- Expiry Date: ${expiry}`,
     "",
     "STORAGE LOCATION",
     `- Store: ${store}`,
-    `- Location ID: ${qrValue(payload.locationCode)}`,
-    `- Shelf: ${qrValue(payload.shelfNumber)}`,
-    `- Bin: ${qrValue(payload.binLocation)}`,
+    `- Location ID: ${displayValue(payload.locationCode)}`,
+    `- Shelf: ${displayValue(payload.shelfNumber)}`,
+    `- Bin: ${displayValue(payload.binLocation)}`,
     "",
     "GS1 ELEMENT STRING",
     `- Full Code: ${elementString}`,
-    `- (01) GTIN: ${qrValue(payload.gs1?.ai01Gtin)}`,
-    `- (10) Batch/Lot: ${qrValue(payload.gs1?.ai10Lot ?? payload.lotNumber ?? payload.batchNumber)}`,
-    `- (17) Expiry: ${qrValue(payload.gs1?.ai17Expiry)} (YYMMDD format)`
+    `- (01) GTIN: ${displayValue(payload.gs1?.ai01Gtin)}`,
+    `- (10) Batch/Lot: ${displayValue(payload.gs1?.ai10Lot ?? payload.lotNumber ?? payload.batchNumber)}`,
+    `- (17) Expiry: ${displayValue(payload.gs1?.ai17Expiry)} (YYMMDD format)`,
   ].join("\n");
 }
 
-export function buildOfflineQrLabelDataUrl(payload: QrLabelPayload) {
-  return buildQrLabelScanText(payload);
+export function buildOfflineQrLabelDataUrl(
+  payload: QrLabelPayload,
+  origin = "",
+) {
+  const item = encodeURIComponent(payload.itemCode || "");
+  const batch = encodeURIComponent(
+    payload.batchNumber || payload.lotNumber || "",
+  );
+  const received = encodeURIComponent(
+    payload.receivedDate ? String(payload.receivedDate).slice(0, 10) : "",
+  );
+  const expiry = encodeURIComponent(
+    payload.expiryDate ? String(payload.expiryDate).slice(0, 10) : "",
+  );
+  const purpose = encodeURIComponent(payload.purpose || "");
+  return `${origin}/scan?item=${item}&batch=${batch}&received=${received}&expiry=${expiry}&purpose=${purpose}`;
 }

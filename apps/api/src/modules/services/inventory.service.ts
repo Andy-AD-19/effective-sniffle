@@ -8,9 +8,22 @@ import { buildBinCardRows } from "./bin-card";
 
 @Injectable()
 export class InventoryService {
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
-  async listItems(query: { search?: string; page?: number; pageSize?: number; active?: string; categoryId?: string; kind?: ItemKind; fundingSourceId?: string; sortBy?: string; sortDir?: string }) {
+  async listItems(query: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    active?: string;
+    categoryId?: string;
+    kind?: ItemKind;
+    fundingSourceId?: string;
+    sortBy?: string;
+    sortDir?: string;
+  }) {
     const page = Number(query.page ?? 1);
     const pageSize = Math.min(Number(query.pageSize ?? 20), 1000);
     const where: Prisma.ItemWhereInput = {
@@ -22,9 +35,9 @@ export class InventoryService {
       OR: query.search
         ? [
             { code: { contains: query.search } },
-            { description: { contains: query.search } }
+            { description: { contains: query.search } },
           ]
-        : undefined
+        : undefined,
     };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.item.findMany({
@@ -38,15 +51,20 @@ export class InventoryService {
           documentFile: true,
           createdBy: { select: { id: true, fullName: true, email: true } },
           updatedBy: { select: { id: true, fullName: true, email: true } },
-          locationBalances: true
+          locationBalances: true,
         },
         orderBy: this.itemOrderBy(query.sortBy, query.sortDir),
         skip: (page - 1) * pageSize,
-        take: pageSize
+        take: pageSize,
       }),
-      this.prisma.item.count({ where })
+      this.prisma.item.count({ where }),
     ]);
-    return { items: items.map((item) => this.withStockStatus(item)), total, page, pageSize };
+    return {
+      items: items.map((item) => this.withStockStatus(item)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async createItem(actorId: string, input: any) {
@@ -54,18 +72,43 @@ export class InventoryService {
     const code = input.code?.trim() ?? (await this.nextItemCode(input.kind));
     const duplicate = await this.prisma.item.findUnique({ where: { code } });
     if (duplicate) throw new BadRequestException("Item code must be unique");
-    
+
     const sanitized = this.sanitizeFieldsByKind({
       ...input,
       kind: input.kind ?? ItemKind.CONSUMABLE,
-      reorderLevel: input.reorderLevel !== undefined && input.reorderLevel !== null && input.reorderLevel !== "" ? Number(input.reorderLevel) : 0,
-      minimumStock: input.minimumStock !== undefined && input.minimumStock !== null && input.minimumStock !== "" ? Number(input.minimumStock) : 0,
-      maximumStock: input.maximumStock !== undefined && input.maximumStock !== null && input.maximumStock !== "" ? Number(input.maximumStock) : 0,
+      reorderLevel:
+        input.reorderLevel !== undefined &&
+        input.reorderLevel !== null &&
+        input.reorderLevel !== ""
+          ? Number(input.reorderLevel)
+          : 0,
+      minimumStock:
+        input.minimumStock !== undefined &&
+        input.minimumStock !== null &&
+        input.minimumStock !== ""
+          ? Number(input.minimumStock)
+          : 0,
+      maximumStock:
+        input.maximumStock !== undefined &&
+        input.maximumStock !== null &&
+        input.maximumStock !== ""
+          ? Number(input.maximumStock)
+          : 0,
       batchTrackingRequired: Boolean(input.batchTrackingRequired),
       expiryTrackingRequired: Boolean(input.expiryTrackingRequired),
-      barcodeRequired: input.barcodeRequired === undefined ? true : Boolean(input.barcodeRequired),
-      depreciationRate: input.depreciationRate !== undefined && input.depreciationRate !== null && input.depreciationRate !== "" ? Number(input.depreciationRate) : null,
-      calibrationDueDate: input.calibrationDueDate ? new Date(input.calibrationDueDate) : null,
+      barcodeRequired:
+        input.barcodeRequired === undefined
+          ? true
+          : Boolean(input.barcodeRequired),
+      depreciationRate:
+        input.depreciationRate !== undefined &&
+        input.depreciationRate !== null &&
+        input.depreciationRate !== ""
+          ? Number(input.depreciationRate)
+          : null,
+      calibrationDueDate: input.calibrationDueDate
+        ? new Date(input.calibrationDueDate)
+        : null,
     });
 
     const item = await this.prisma.item.create({
@@ -92,55 +135,136 @@ export class InventoryService {
         departmentAssignmentId: sanitized.departmentAssignmentId || null,
         calibrationDueDate: sanitized.calibrationDueDate,
         createdById: actorId,
-        updatedById: actorId
+        updatedById: actorId,
       },
-      include: { category: true, unit: true, fundingSource: true, defaultLocation: true, photoFile: true, documentFile: true }
+      include: {
+        category: true,
+        unit: true,
+        fundingSource: true,
+        defaultLocation: true,
+        photoFile: true,
+        documentFile: true,
+      },
     });
-    await this.audit.record({ actorId, action: "item.create", entityType: "Item", entityId: item.id, after: item });
+    await this.audit.record({
+      actorId,
+      action: "item.create",
+      entityType: "Item",
+      entityId: item.id,
+      after: item,
+    });
     return item;
   }
 
   async updateItem(actorId: string, id: string, input: any) {
     const before = await this.prisma.item.findUniqueOrThrow({ where: { id } });
     const hasMovements = await this.hasTransactions(id);
-    const unsafeFields = ["code", "kind", "batchTrackingRequired", "expiryTrackingRequired", "barcodeRequired"];
-    if (hasMovements && unsafeFields.some((field) => input[field] !== undefined && input[field] !== (before as any)[field])) {
-      throw new BadRequestException("Item has stock movement. Code, asset type, and tracking flags cannot be changed.");
+    const unsafeFields = [
+      "code",
+      "kind",
+      "batchTrackingRequired",
+      "expiryTrackingRequired",
+      "barcodeRequired",
+    ];
+    if (
+      hasMovements &&
+      unsafeFields.some(
+        (field) =>
+          input[field] !== undefined && input[field] !== (before as any)[field],
+      )
+    ) {
+      throw new BadRequestException(
+        "Item has stock movement. Code, asset type, and tracking flags cannot be changed.",
+      );
     }
     await this.validateItemInput({ ...before, ...input }, true);
     const item = await this.prisma.item.update({
       where: { id },
-      data: this.cleanUpdateInput({ ...input, kind: input.kind ?? before.kind }, actorId),
-      include: { category: true, unit: true, fundingSource: true, defaultLocation: true, photoFile: true, documentFile: true }
+      data: this.cleanUpdateInput(
+        { ...input, kind: input.kind ?? before.kind },
+        actorId,
+      ),
+      include: {
+        category: true,
+        unit: true,
+        fundingSource: true,
+        defaultLocation: true,
+        photoFile: true,
+        documentFile: true,
+      },
     });
-    await this.audit.record({ actorId, action: "item.update", entityType: "Item", entityId: id, before, after: item });
+    await this.audit.record({
+      actorId,
+      action: "item.update",
+      entityType: "Item",
+      entityId: id,
+      before,
+      after: item,
+    });
     return item;
   }
 
   async deactivateItem(actorId: string, id: string) {
     await this.prisma.item.findUniqueOrThrow({ where: { id } });
-    const item = await this.prisma.item.update({ where: { id }, data: { active: false, updatedById: actorId } });
-    await this.audit.record({ actorId, action: "item.deactivate", entityType: "Item", entityId: id, after: item });
+    const item = await this.prisma.item.update({
+      where: { id },
+      data: { active: false, updatedById: actorId },
+    });
+    await this.audit.record({
+      actorId,
+      action: "item.deactivate",
+      entityType: "Item",
+      entityId: id,
+      after: item,
+    });
     return item;
   }
 
-  async updateItemFiles(actorId: string, id: string, input: { photoFileId?: string; documentFileId?: string }) {
-    const before = await this.prisma.item.findUniqueOrThrow({ where: { id }, include: { photoFile: true, documentFile: true } });
+  async updateItemFiles(
+    actorId: string,
+    id: string,
+    input: { photoFileId?: string; documentFileId?: string },
+  ) {
+    const before = await this.prisma.item.findUniqueOrThrow({
+      where: { id },
+      include: { photoFile: true, documentFile: true },
+    });
     const item = await this.prisma.item.update({
       where: { id },
       data: {
         photoFileId: input.photoFileId ?? before.photoFileId,
         documentFileId: input.documentFileId ?? before.documentFileId,
-        updatedById: actorId
+        updatedById: actorId,
       },
-      include: { category: true, unit: true, fundingSource: true, defaultLocation: true, photoFile: true, documentFile: true }
+      include: {
+        category: true,
+        unit: true,
+        fundingSource: true,
+        defaultLocation: true,
+        photoFile: true,
+        documentFile: true,
+      },
     });
-    await this.audit.record({ actorId, action: "item.files.update", entityType: "Item", entityId: id, before, after: item });
+    await this.audit.record({
+      actorId,
+      action: "item.files.update",
+      entityType: "Item",
+      entityId: id,
+      before,
+      after: item,
+    });
     return item;
   }
 
-  async importItemsFromExcel(actorId: string, filePath: string, originalName?: string) {
-    if (!filePath) throw new BadRequestException("Choose an Excel workbook before importing items.");
+  async importItemsFromExcel(
+    actorId: string,
+    filePath: string,
+    originalName?: string,
+  ) {
+    if (!filePath)
+      throw new BadRequestException(
+        "Choose an Excel workbook before importing items.",
+      );
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
     const sheet = workbook.worksheets[0];
@@ -149,15 +273,22 @@ export class InventoryService {
     const category = await this.prisma.category.upsert({
       where: { name: "Manual Inventory Import" },
       update: { active: true },
-      create: { name: "Manual Inventory Import", description: "Items imported from manual Excel inventory workflows" }
+      create: {
+        name: "Manual Inventory Import",
+        description: "Items imported from manual Excel inventory workflows",
+      },
     });
     const store = await this.prisma.storeLocation.upsert({
       where: { code: "MAIN" },
       update: { name: "Main Store", active: true },
-      create: { code: "MAIN", name: "Main Store" }
+      create: { code: "MAIN", name: "Main Store" },
     });
-    const existingItems = await this.prisma.item.findMany({ select: { id: true, code: true } });
-    const existingByCode = new Map(existingItems.map((item) => [item.code, item]));
+    const existingItems = await this.prisma.item.findMany({
+      select: { id: true, code: true },
+    });
+    const existingByCode = new Map(
+      existingItems.map((item) => [item.code, item]),
+    );
     const usedCodes = new Set(existingItems.map((item) => item.code));
     const seenBaseCodes = new Set<string>();
     const auditRows: any[] = [];
@@ -175,26 +306,48 @@ export class InventoryService {
       const headers: { col: number; text: string }[] = [];
       row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
         const val = this.importText(cell.value);
-        const norm = val.toLowerCase().replace(/[^a-z0-9\u1200-\u137F]/g, " ").replace(/\s+/g, " ").trim();
+        const norm = val
+          .toLowerCase()
+          .replace(/[^a-z0-9\u1200-\u137F]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
         if (norm) headers.push({ col: colNumber, text: norm });
       });
 
-      const hasDesc = headers.some((h) => /item desc|description|የ ዕ ቃ|ዕቃ.*መግለጫ|መግለጫ/i.test(h.text));
-      const hasSerialOrPart = headers.some((h) => /s\s*n|part number|serial|code/i.test(h.text));
-      const hasQtyOrUnit = headers.some((h) => /qty|quantity|unit|መለኪያ|ብዛት/i.test(h.text));
+      const hasDesc = headers.some((h) =>
+        /item desc|description|የ ዕ ቃ|ዕቃ.*መግለጫ|መግለጫ/i.test(h.text),
+      );
+      const hasSerialOrPart = headers.some((h) =>
+        /s\s*n|part number|serial|code/i.test(h.text),
+      );
+      const hasQtyOrUnit = headers.some((h) =>
+        /qty|quantity|unit|መለኪያ|ብዛት/i.test(h.text),
+      );
 
       if (hasDesc && (hasSerialOrPart || hasQtyOrUnit)) {
         headerRowIndex = r;
         headers.forEach((h) => {
           const text = h.text;
-          if (/item desc|description|መግለጫ/i.test(text)) columnMap["description"] = h.col;
-          else if (/part number|part no|የመለዋወጫ ቁጥር/i.test(text)) columnMap["partNumber"] = h.col;
-          else if (/^s\s*n$|serial|ተ\s*ቁ/i.test(text)) columnMap["serial"] = h.col;
-          else if (/unit\s*price|unit\s*cost|ዋጋ/i.test(text)) columnMap["unitPrice"] = h.col;
-          else if (/unit of measure|uom|^unit$|መለኪያ/i.test(text)) columnMap["unit"] = h.col;
-          else if (/final r[o|e]prt qty|report qty|quantity|^qty$|ብዛት/i.test(text)) columnMap["quantity"] = h.col;
-          else if (/phy[s|i]cal bal|physical balance|physical count/i.test(text)) columnMap["physicalBalance"] = h.col;
-          else if (/source of fund|funding|fund|የገንዘብ ምንጭ/i.test(text)) columnMap["fundingSource"] = h.col;
+          if (/item desc|description|መግለጫ/i.test(text))
+            columnMap["description"] = h.col;
+          else if (/part number|part no|የመለዋወጫ ቁጥር/i.test(text))
+            columnMap["partNumber"] = h.col;
+          else if (/^s\s*n$|serial|ተ\s*ቁ/i.test(text))
+            columnMap["serial"] = h.col;
+          else if (/unit\s*price|unit\s*cost|ዋጋ/i.test(text))
+            columnMap["unitPrice"] = h.col;
+          else if (/unit of measure|uom|^unit$|መለኪያ/i.test(text))
+            columnMap["unit"] = h.col;
+          else if (
+            /final r[o|e]prt qty|report qty|quantity|^qty$|ብዛት/i.test(text)
+          )
+            columnMap["quantity"] = h.col;
+          else if (
+            /phy[s|i]cal bal|physical balance|physical count/i.test(text)
+          )
+            columnMap["physicalBalance"] = h.col;
+          else if (/source of fund|funding|fund|የገንዘብ ምንጭ/i.test(text))
+            columnMap["fundingSource"] = h.col;
         });
         break;
       }
@@ -216,50 +369,89 @@ export class InventoryService {
     let firstDataRow = headerRowIndex + 1;
     if (firstDataRow <= sheet.rowCount) {
       const nextRow = sheet.getRow(firstDataRow);
-      const c1 = this.importText(nextRow.getCell(columnMap["serial"] || 1).value).toLowerCase();
-      if (c1 === "s n" || c1 === "serial" || c1 === "s/n" || (c1 && !/^\d+$/.test(c1))) {
+      const c1 = this.importText(
+        nextRow.getCell(columnMap["serial"] || 1).value,
+      ).toLowerCase();
+      if (
+        c1 === "s n" ||
+        c1 === "serial" ||
+        c1 === "s/n" ||
+        (c1 && !/^\d+$/.test(c1))
+      ) {
         firstDataRow++;
       }
     }
     while (firstDataRow <= sheet.rowCount) {
       const row = sheet.getRow(firstDataRow);
-      const desc = this.importText(row.getCell(columnMap["description"] || 2).value);
-      const serial = this.importText(row.getCell(columnMap["serial"] || 1).value);
+      const desc = this.importText(
+        row.getCell(columnMap["description"] || 2).value,
+      );
+      const serial = this.importText(
+        row.getCell(columnMap["serial"] || 1).value,
+      );
       if (desc || (serial && /^\d+$/.test(serial))) {
         break;
       }
       firstDataRow++;
     }
 
-    for (let rowNumber = firstDataRow; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    for (
+      let rowNumber = firstDataRow;
+      rowNumber <= sheet.rowCount;
+      rowNumber += 1
+    ) {
       const row = sheet.getRow(rowNumber);
-      const serial = this.importText(row.getCell(columnMap["serial"] || 1).value);
-      const description = this.importText(row.getCell(columnMap["description"] || 2).value);
+      const serial = this.importText(
+        row.getCell(columnMap["serial"] || 1).value,
+      );
+      const description = this.importText(
+        row.getCell(columnMap["description"] || 2).value,
+      );
       if (/^total\b/i.test(serial) || /^total\b/i.test(description)) break;
-      if (/የቆጠራ ኮሚቴ/i.test(description) || /committee/i.test(description)) break;
+      if (/የቆጠራ ኮሚቴ/i.test(description) || /committee/i.test(description))
+        break;
       if (!description) {
         skipped += 1;
         continue;
       }
-      const partNumber = this.importText(row.getCell(columnMap["partNumber"] || 3).value);
-      const unitInfo = this.normalizeImportUnit(this.importText(row.getCell(columnMap["unit"] || 4).value));
-      const finalReportQuantity = this.importNumber(row.getCell(columnMap["quantity"] || 5).value);
-      const physicalBalance = this.importNumber(row.getCell(columnMap["physicalBalance"] || 11).value);
-      const unitPrice = this.importNumber(row.getCell(columnMap["unitPrice"] || 13).value);
-      const sourceOfFund = this.importText(row.getCell(columnMap["fundingSource"] || 15).value) || "Federal Allocation";
-      const baseCode = this.cleanImportCode(partNumber || serial, `MIHRET-${String(serial).padStart(4, "0")}`);
-      const candidateCode = seenBaseCodes.has(baseCode) ? `${baseCode}-${serial}` : baseCode;
-      const code = existingByCode.has(candidateCode) ? candidateCode : this.uniqueImportCode(candidateCode, usedCodes);
+      const partNumber = this.importText(
+        row.getCell(columnMap["partNumber"] || 3).value,
+      );
+      const unitInfo = this.normalizeImportUnit(
+        this.importText(row.getCell(columnMap["unit"] || 4).value),
+      );
+      const finalReportQuantity = this.importNumber(
+        row.getCell(columnMap["quantity"] || 5).value,
+      );
+      const physicalBalance = this.importNumber(
+        row.getCell(columnMap["physicalBalance"] || 11).value,
+      );
+      const unitPrice = this.importNumber(
+        row.getCell(columnMap["unitPrice"] || 13).value,
+      );
+      const sourceOfFund =
+        this.importText(row.getCell(columnMap["fundingSource"] || 15).value) ||
+        "Federal Allocation";
+      const baseCode = this.cleanImportCode(
+        partNumber || serial,
+        `MIHRET-${String(serial).padStart(4, "0")}`,
+      );
+      const candidateCode = seenBaseCodes.has(baseCode)
+        ? `${baseCode}-${serial}`
+        : baseCode;
+      const code = existingByCode.has(candidateCode)
+        ? candidateCode
+        : this.uniqueImportCode(candidateCode, usedCodes);
       seenBaseCodes.add(baseCode);
       const unit = await this.prisma.unitOfMeasure.upsert({
         where: { symbol: unitInfo.symbol },
         update: { name: unitInfo.name },
-        create: unitInfo
+        create: unitInfo,
       });
       const funding = await this.prisma.fundingSource.upsert({
         where: { name: sourceOfFund },
         update: { active: true },
-        create: { name: sourceOfFund }
+        create: { name: sourceOfFund },
       });
       const levels = Math.max(finalReportQuantity, physicalBalance, 1);
       const data = {
@@ -276,12 +468,14 @@ export class InventoryService {
         expiryTrackingRequired: false,
         barcodeRequired: true,
         active: true,
-        updatedById: actorId
+        updatedById: actorId,
       };
       const existing = existingByCode.get(code);
       const item = existing
         ? await this.prisma.item.update({ where: { id: existing.id }, data })
-        : await this.prisma.item.create({ data: { ...data, code, createdById: actorId } });
+        : await this.prisma.item.create({
+            data: { ...data, code, createdById: actorId },
+          });
       if (existing) updated += 1;
       else created += 1;
       existingByCode.set(code, { id: item.id, code: item.code });
@@ -290,13 +484,25 @@ export class InventoryService {
         action: "item.import_excel",
         entityType: "Item",
         entityId: item.id,
-        after: JSON.stringify({ originalName, rowNumber, serial, code, partNumber, sourceOfFund, unitPrice, finalReportQuantity, physicalBalance })
+        after: JSON.stringify({
+          originalName,
+          rowNumber,
+          serial,
+          code,
+          partNumber,
+          sourceOfFund,
+          unitPrice,
+          finalReportQuantity,
+          physicalBalance,
+        }),
       });
       imported += 1;
     }
 
     for (let index = 0; index < auditRows.length; index += 100) {
-      await this.prisma.auditLog.createMany({ data: auditRows.slice(index, index + 100) });
+      await this.prisma.auditLog.createMany({
+        data: auditRows.slice(index, index + 100),
+      });
     }
     return { imported, created, updated, skipped, sheet: sheet.name };
   }
@@ -313,11 +519,19 @@ export class InventoryService {
         documentFile: true,
         createdBy: { select: { id: true, fullName: true, email: true } },
         updatedBy: { select: { id: true, fullName: true, email: true } },
-        locationBalances: { include: { batch: true, store: true, storageLocation: true }, orderBy: { updatedAt: "desc" } },
-        stockBatches: { orderBy: { createdAt: "desc" }, take: 20 }
-        ,
-        assetCustodies: { include: { custodianDepartment: true, assignedBy: { select: { fullName: true, email: true } } }, orderBy: { assignedAt: "desc" } }
-      }
+        locationBalances: {
+          include: { batch: true, store: true, storageLocation: true },
+          orderBy: { updatedAt: "desc" },
+        },
+        stockBatches: { orderBy: { createdAt: "desc" }, take: 20 },
+        assetCustodies: {
+          include: {
+            custodianDepartment: true,
+            assignedBy: { select: { fullName: true, email: true } },
+          },
+          orderBy: { assignedAt: "desc" },
+        },
+      },
     });
     const recentMovements = await this.prisma.stockLedgerEntry.findMany({
       where: { itemId: id },
@@ -326,10 +540,12 @@ export class InventoryService {
         storageLocation: { include: { store: true } },
         actor: { select: { fullName: true, email: true } },
         grnLine: { include: { grn: { include: { supplierDonor: true } } } },
-        voucher: { include: { issueRequest: { include: { department: true } } } }
+        voucher: {
+          include: { issueRequest: { include: { department: true } } },
+        },
       },
       orderBy: { postedAt: "desc" },
-      take: 20
+      take: 20,
     });
     const binCardMovements = await this.prisma.stockLedgerEntry.findMany({
       where: { itemId: id },
@@ -338,11 +554,16 @@ export class InventoryService {
         storageLocation: { include: { store: true } },
         actor: { select: { fullName: true, email: true } },
         grnLine: { include: { grn: { include: { supplierDonor: true } } } },
-        voucher: { include: { issueRequest: { include: { department: true } } } }
+        voucher: {
+          include: { issueRequest: { include: { department: true } } },
+        },
       },
-      orderBy: { postedAt: "asc" }
+      orderBy: { postedAt: "asc" },
     });
-    const currentStock = item.locationBalances.reduce((sum, balance) => sum + Number(balance.quantityOnHand), 0);
+    const currentStock = item.locationBalances.reduce(
+      (sum, balance) => sum + Number(balance.quantityOnHand),
+      0,
+    );
     return {
       ...this.withStockStatus(item),
       currentStock,
@@ -353,7 +574,7 @@ export class InventoryService {
         storageLocation: balance.storageLocation,
         batch: balance.batch,
         quantityOnHand: Number(balance.quantityOnHand),
-        quantityAvailable: Number(balance.quantityAvailable)
+        quantityAvailable: Number(balance.quantityAvailable),
       })),
       stockByBatch: item.stockBatches.map((batch) => ({
         id: batch.id,
@@ -361,9 +582,9 @@ export class InventoryService {
         expiryDate: batch.expiryDate,
         status: batch.status,
         totalAcceptedQuantity: Number(batch.totalAcceptedQuantity),
-        remainingQuantity: Number(batch.remainingQuantity)
+        remainingQuantity: Number(batch.remainingQuantity),
       })),
-      recentMovements
+      recentMovements,
     };
   }
 
@@ -371,17 +592,31 @@ export class InventoryService {
     await this.prisma.item.findUniqueOrThrow({ where: { id: itemId } });
     return this.prisma.fixedAssetCustody.findMany({
       where: { itemId },
-      include: { item: { select: { id: true, code: true, description: true, kind: true } }, custodianDepartment: true, assignedBy: { select: { fullName: true, email: true } } },
-      orderBy: { assignedAt: "desc" }
+      include: {
+        item: {
+          select: { id: true, code: true, description: true, kind: true },
+        },
+        custodianDepartment: true,
+        assignedBy: { select: { fullName: true, email: true } },
+      },
+      orderBy: { assignedAt: "desc" },
     });
   }
 
   async createAssetCustody(actorId: string, itemId: string, input: any) {
-    const item = await this.prisma.item.findUniqueOrThrow({ where: { id: itemId } });
-    if (item.kind !== ItemKind.FIXED_ASSET) throw new BadRequestException("Custody records are only available for fixed assets");
-    if (!input.assetTag?.trim()) throw new BadRequestException("Asset tag is required");
-    if (!input.serialNumber?.trim()) throw new BadRequestException("Serial number is required");
-    if (!input.custodianName?.trim()) throw new BadRequestException("Custodian name is required");
+    const item = await this.prisma.item.findUniqueOrThrow({
+      where: { id: itemId },
+    });
+    if (item.kind !== ItemKind.FIXED_ASSET)
+      throw new BadRequestException(
+        "Custody records are only available for fixed assets",
+      );
+    if (!input.assetTag?.trim())
+      throw new BadRequestException("Asset tag is required");
+    if (!input.serialNumber?.trim())
+      throw new BadRequestException("Serial number is required");
+    if (!input.custodianName?.trim())
+      throw new BadRequestException("Custodian name is required");
     const custody = await this.prisma.fixedAssetCustody.create({
       data: {
         itemId,
@@ -394,82 +629,159 @@ export class InventoryService {
         status: input.status || "ASSIGNED",
         assignedAt: input.assignedAt ? new Date(input.assignedAt) : new Date(),
         notes: input.notes?.trim() || undefined,
-        assignedById: actorId
+        assignedById: actorId,
       },
-      include: { custodianDepartment: true, assignedBy: { select: { fullName: true, email: true } } }
+      include: {
+        custodianDepartment: true,
+        assignedBy: { select: { fullName: true, email: true } },
+      },
     });
-    await this.audit.record({ actorId, action: "asset-custody.assign", entityType: "FixedAssetCustody", entityId: custody.id, after: custody });
+    await this.audit.record({
+      actorId,
+      action: "asset-custody.assign",
+      entityType: "FixedAssetCustody",
+      entityId: custody.id,
+      after: custody,
+    });
     return custody;
   }
 
   async updateAssetCustody(actorId: string, id: string, input: any) {
-    const before = await this.prisma.fixedAssetCustody.findUniqueOrThrow({ where: { id } });
+    const before = await this.prisma.fixedAssetCustody.findUniqueOrThrow({
+      where: { id },
+    });
     const custody = await this.prisma.fixedAssetCustody.update({
       where: { id },
       data: {
         assetTag: input.assetTag?.trim(),
         serialNumber: input.serialNumber?.trim(),
         custodianName: input.custodianName?.trim(),
-        custodianDepartmentId: input.custodianDepartmentId === undefined ? undefined : input.custodianDepartmentId || null,
-        location: input.location === undefined ? undefined : input.location?.trim() || null,
+        custodianDepartmentId:
+          input.custodianDepartmentId === undefined
+            ? undefined
+            : input.custodianDepartmentId || null,
+        location:
+          input.location === undefined
+            ? undefined
+            : input.location?.trim() || null,
         condition: input.condition,
         status: input.status,
         assignedAt: input.assignedAt ? new Date(input.assignedAt) : undefined,
-        notes: input.notes === undefined ? undefined : input.notes?.trim() || null
+        notes:
+          input.notes === undefined ? undefined : input.notes?.trim() || null,
       },
-      include: { custodianDepartment: true, assignedBy: { select: { fullName: true, email: true } } }
+      include: {
+        custodianDepartment: true,
+        assignedBy: { select: { fullName: true, email: true } },
+      },
     });
-    await this.audit.record({ actorId, action: "asset-custody.update", entityType: "FixedAssetCustody", entityId: id, before, after: custody });
+    await this.audit.record({
+      actorId,
+      action: "asset-custody.update",
+      entityType: "FixedAssetCustody",
+      entityId: id,
+      before,
+      after: custody,
+    });
     return custody;
   }
 
   async returnAssetCustody(actorId: string, id: string, input: any = {}) {
-    const before = await this.prisma.fixedAssetCustody.findUniqueOrThrow({ where: { id } });
+    const before = await this.prisma.fixedAssetCustody.findUniqueOrThrow({
+      where: { id },
+    });
     const custody = await this.prisma.fixedAssetCustody.update({
       where: { id },
       data: {
         status: "RETURNED",
         returnedAt: input.returnedAt ? new Date(input.returnedAt) : new Date(),
         condition: input.condition ?? before.condition,
-        notes: input.notes ? `${before.notes ? `${before.notes}\n` : ""}Return notes: ${input.notes}` : before.notes
+        notes: input.notes
+          ? `${before.notes ? `${before.notes}\n` : ""}Return notes: ${input.notes}`
+          : before.notes,
       },
-      include: { custodianDepartment: true, assignedBy: { select: { fullName: true, email: true } } }
+      include: {
+        custodianDepartment: true,
+        assignedBy: { select: { fullName: true, email: true } },
+      },
     });
-    await this.audit.record({ actorId, action: "asset-custody.return", entityType: "FixedAssetCustody", entityId: id, before, after: custody });
+    await this.audit.record({
+      actorId,
+      action: "asset-custody.return",
+      entityType: "FixedAssetCustody",
+      entityId: id,
+      before,
+      after: custody,
+    });
     return custody;
   }
 
   masterData() {
     return Promise.all([
-      this.prisma.category.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+      this.prisma.category.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
       this.prisma.unitOfMeasure.findMany({ orderBy: { name: "asc" } }),
-      this.prisma.fundingSource.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      this.prisma.storeLocation.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      this.prisma.department.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      this.prisma.supplierDonor.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      this.prisma.storageLocation.findMany({ where: { isActive: true }, include: { store: true }, orderBy: { locationCode: "asc" } }),
-      this.prisma.disposalReason.findMany({ where: { active: true }, orderBy: { name: "asc" } })
-    ]).then(([categories, units, fundingSources, locations, departments, supplierDonors, storageLocations, disposalReasons]) => {
-      const sources = this.receivingSources(supplierDonors, fundingSources);
-      return {
+      this.prisma.fundingSource.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.storeLocation.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.department.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.supplierDonor.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+      this.prisma.storageLocation.findMany({
+        where: { isActive: true },
+        include: { store: true },
+        orderBy: { locationCode: "asc" },
+      }),
+      this.prisma.disposalReason.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+      }),
+    ]).then(
+      ([
         categories,
         units,
-        unitsOfMeasure: units,
         fundingSources,
         locations,
-        stores: locations,
-        storeLocations: locations,
         departments,
-        supplierDonors: sources,
-        suppliers: sources,
+        supplierDonors,
         storageLocations,
-        disposalReasons
-      };
-    });
+        disposalReasons,
+      ]) => {
+        const sources = this.receivingSources(supplierDonors, fundingSources);
+        return {
+          categories,
+          units,
+          unitsOfMeasure: units,
+          fundingSources,
+          locations,
+          stores: locations,
+          storeLocations: locations,
+          departments,
+          supplierDonors: sources,
+          suppliers: sources,
+          storageLocations,
+          disposalReasons,
+        };
+      },
+    );
   }
 
   private receivingSources(supplierDonors: any[], fundingSources: any[]) {
-    const seen = new Set(supplierDonors.map((source) => source.name.trim().toLowerCase()));
+    const seen = new Set(
+      supplierDonors.map((source) => source.name.trim().toLowerCase()),
+    );
     const fundingBackups = fundingSources
       .filter((source) => !seen.has(source.name.trim().toLowerCase()))
       .map((source) => ({
@@ -479,52 +791,92 @@ export class InventoryService {
         contact: null,
         active: source.active,
         fundingSourceId: source.id,
-        derivedFromFundingSource: true
+        derivedFromFundingSource: true,
       }));
-    return [...supplierDonors, ...fundingBackups].sort((left, right) => left.name.localeCompare(right.name));
+    return [...supplierDonors, ...fundingBackups].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
   }
 
   private async nextItemCode(kind: ItemKind) {
-    const prefix = kind === ItemKind.FIXED_ASSET ? "EQP" : kind === ItemKind.DISPENSABLE_ASSET ? "DSP" : "ITM";
-    const count = await this.prisma.item.count({ where: { code: { startsWith: prefix } } });
+    const prefix =
+      kind === ItemKind.FIXED_ASSET
+        ? "EQP"
+        : kind === ItemKind.DISPENSABLE_ASSET
+          ? "DSP"
+          : "ITM";
+    const count = await this.prisma.item.count({
+      where: { code: { startsWith: prefix } },
+    });
     return `${prefix}-${String(count + 1).padStart(4, "0")}`;
   }
 
   private async validateItemInput(input: any, partial = false) {
-    if (!partial && !input.code?.trim()) throw new BadRequestException("Item code is required");
+    if (!partial && !input.code?.trim())
+      throw new BadRequestException("Item code is required");
     this.validateGtin(input.gtin);
-    if (!input.description?.trim()) throw new BadRequestException("Description is required");
-    if (!input.categoryId) throw new BadRequestException("Category is required");
-    if (!input.unitId) throw new BadRequestException("Unit of measure is required");
-    if (!input.fundingSourceId) throw new BadRequestException("Funding source is required");
-    if (!input.defaultLocationId) throw new BadRequestException("Default location is required");
+    if (!input.description?.trim())
+      throw new BadRequestException("Description is required");
+    if (!input.categoryId)
+      throw new BadRequestException("Category is required");
+    if (!input.unitId)
+      throw new BadRequestException("Unit of measure is required");
+    if (!input.fundingSourceId)
+      throw new BadRequestException("Funding source is required");
+    if (!input.defaultLocationId)
+      throw new BadRequestException("Default location is required");
 
     // Validate reorder/min/max stock limits dynamically depending on asset type (kind)
-    const isReorderRequired = input.kind === "CONSUMABLE" || input.kind === "GENERAL_SUPPLY";
+    const isReorderRequired =
+      input.kind === "CONSUMABLE" || input.kind === "GENERAL_SUPPLY";
     const isReorderOptional = input.kind === "DISPENSABLE_ASSET";
-    
-    const hasReorder = input.reorderLevel !== undefined && input.reorderLevel !== null && input.reorderLevel !== "";
-    const hasMin = input.minimumStock !== undefined && input.minimumStock !== null && input.minimumStock !== "";
-    const hasMax = input.maximumStock !== undefined && input.maximumStock !== null && input.maximumStock !== "";
 
-    if (isReorderRequired || (isReorderOptional && (hasReorder || hasMin || hasMax))) {
+    const hasReorder =
+      input.reorderLevel !== undefined &&
+      input.reorderLevel !== null &&
+      input.reorderLevel !== "";
+    const hasMin =
+      input.minimumStock !== undefined &&
+      input.minimumStock !== null &&
+      input.minimumStock !== "";
+    const hasMax =
+      input.maximumStock !== undefined &&
+      input.maximumStock !== null &&
+      input.maximumStock !== "";
+
+    if (
+      isReorderRequired ||
+      (isReorderOptional && (hasReorder || hasMin || hasMax))
+    ) {
       const reorder = Number(input.reorderLevel ?? 0);
       const minimum = Number(input.minimumStock ?? 0);
       const maximum = Number(input.maximumStock ?? 0);
-      if (Number.isNaN(reorder) || reorder < 0) throw new BadRequestException("Reorder level must be a non-negative number");
-      if (Number.isNaN(minimum) || minimum < 0) throw new BadRequestException("Minimum stock must be a non-negative number");
-      if (Number.isNaN(maximum) || maximum < minimum) throw new BadRequestException("Maximum stock must be greater than or equal to minimum stock");
-      if (reorder < minimum || reorder > maximum) throw new BadRequestException("Reorder level should be between minimum stock and maximum stock");
+      if (Number.isNaN(reorder) || reorder < 0)
+        throw new BadRequestException(
+          "Reorder level must be a non-negative number",
+        );
+      if (Number.isNaN(minimum) || minimum < 0)
+        throw new BadRequestException(
+          "Minimum stock must be a non-negative number",
+        );
+      if (Number.isNaN(maximum) || maximum < minimum)
+        throw new BadRequestException(
+          "Maximum stock must be greater than or equal to minimum stock",
+        );
+      if (reorder < minimum || reorder > maximum)
+        throw new BadRequestException(
+          "Reorder level should be between minimum stock and maximum stock",
+        );
     }
   }
 
   private sanitizeFieldsByKind(data: any) {
     const kind = data.kind;
-    
+
     if (kind === "CONSUMABLE") {
       data.batchTrackingRequired = true;
       data.expiryTrackingRequired = true;
-      
+
       data.serialNumber = null;
       data.modelNumber = null;
       data.depreciationRate = null;
@@ -537,13 +889,13 @@ export class InventoryService {
       data.reorderLevel = 0;
       data.minimumStock = 0;
       data.maximumStock = 0;
-      
+
       data.departmentAssignmentId = null;
       data.calibrationDueDate = null;
     } else if (kind === "DISPENSABLE_ASSET") {
       data.batchTrackingRequired = false;
       data.expiryTrackingRequired = false;
-      
+
       data.depreciationRate = null;
       data.maintenanceCycle = null;
     } else if (kind === "GENERAL_SUPPLY") {
@@ -554,7 +906,7 @@ export class InventoryService {
       data.departmentAssignmentId = null;
       data.calibrationDueDate = null;
     }
-    
+
     return data;
   }
 
@@ -581,21 +933,40 @@ export class InventoryService {
       "depreciationRate",
       "maintenanceCycle",
       "departmentAssignmentId",
-      "calibrationDueDate"
+      "calibrationDueDate",
     ];
     const data: any = { updatedById: actorId };
     for (const key of allowed) {
       if (input[key] !== undefined) data[key] = input[key];
     }
-    if (data.reorderLevel !== undefined) data.reorderLevel = data.reorderLevel !== null && data.reorderLevel !== "" ? Number(data.reorderLevel) : 0;
-    if (data.minimumStock !== undefined) data.minimumStock = data.minimumStock !== null && data.minimumStock !== "" ? Number(data.minimumStock) : 0;
-    if (data.maximumStock !== undefined) data.maximumStock = data.maximumStock !== null && data.maximumStock !== "" ? Number(data.maximumStock) : 0;
-    if (data.depreciationRate !== undefined) data.depreciationRate = data.depreciationRate !== null && data.depreciationRate !== "" ? Number(data.depreciationRate) : null;
-    if (data.calibrationDueDate !== undefined) data.calibrationDueDate = data.calibrationDueDate ? new Date(data.calibrationDueDate) : null;
+    if (data.reorderLevel !== undefined)
+      data.reorderLevel =
+        data.reorderLevel !== null && data.reorderLevel !== ""
+          ? Number(data.reorderLevel)
+          : 0;
+    if (data.minimumStock !== undefined)
+      data.minimumStock =
+        data.minimumStock !== null && data.minimumStock !== ""
+          ? Number(data.minimumStock)
+          : 0;
+    if (data.maximumStock !== undefined)
+      data.maximumStock =
+        data.maximumStock !== null && data.maximumStock !== ""
+          ? Number(data.maximumStock)
+          : 0;
+    if (data.depreciationRate !== undefined)
+      data.depreciationRate =
+        data.depreciationRate !== null && data.depreciationRate !== ""
+          ? Number(data.depreciationRate)
+          : null;
+    if (data.calibrationDueDate !== undefined)
+      data.calibrationDueDate = data.calibrationDueDate
+        ? new Date(data.calibrationDueDate)
+        : null;
     if (data.description) data.description = data.description.trim();
     if (data.code) data.code = data.code.trim();
     if (data.gtin !== undefined) data.gtin = this.cleanOptional(data.gtin);
-    
+
     return this.sanitizeFieldsByKind(data);
   }
 
@@ -606,10 +977,16 @@ export class InventoryService {
 
   private validateGtin(value: any) {
     const text = String(value ?? "").trim();
-    if (text && !/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(text)) throw new BadRequestException("GTIN must be 8, 12, 13, or 14 digits when provided");
+    if (text && !/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(text))
+      throw new BadRequestException(
+        "GTIN must be 8, 12, 13, or 14 digits when provided",
+      );
   }
 
-  private itemOrderBy(sortBy?: string, sortDir?: string): Prisma.ItemOrderByWithRelationInput {
+  private itemOrderBy(
+    sortBy?: string,
+    sortDir?: string,
+  ): Prisma.ItemOrderByWithRelationInput {
     const direction = sortDir === "desc" ? "desc" : "asc";
     if (sortBy === "description") return { description: direction };
     if (sortBy === "category") return { category: { name: direction } };
@@ -617,33 +994,55 @@ export class InventoryService {
   }
 
   private withStockStatus(item: any) {
-    const currentStock = item.locationBalances?.reduce((sum: number, balance: any) => sum + Number(balance.quantityOnHand), 0) ?? 0;
-    if (!item.locationBalances?.length && currentStock === 0) return { ...item, currentStock, stockStatus: "NOT_RECEIVED" };
+    const currentStock =
+      item.locationBalances?.reduce(
+        (sum: number, balance: any) => sum + Number(balance.quantityOnHand),
+        0,
+      ) ?? 0;
+    if (!item.locationBalances?.length && currentStock === 0)
+      return { ...item, currentStock, stockStatus: "NOT_RECEIVED" };
     let stockStatus = "NORMAL";
     if (currentStock === 0) stockStatus = "STOCK_OUT";
-    else if (currentStock < Number(item.minimumStock)) stockStatus = "BELOW_MINIMUM";
-    else if (currentStock <= Number(item.reorderLevel)) stockStatus = "LOW_STOCK";
-    else if (currentStock > Number(item.maximumStock)) stockStatus = "OVERSTOCK";
+    else if (currentStock < Number(item.minimumStock))
+      stockStatus = "BELOW_MINIMUM";
+    else if (currentStock <= Number(item.reorderLevel))
+      stockStatus = "LOW_STOCK";
+    else if (currentStock > Number(item.maximumStock))
+      stockStatus = "OVERSTOCK";
     return { ...item, currentStock, stockStatus };
   }
 
   private importText(value: unknown) {
-    return String(value ?? "").trim().replace(/\s+/g, " ");
+    return String(value ?? "")
+      .trim()
+      .replace(/\s+/g, " ");
   }
 
   private importNumber(value: unknown) {
     if (value && typeof value === "object") {
-      if ("result" in (value as any) && (value as any).result !== null && (value as any).result !== undefined) {
+      if (
+        "result" in (value as any) &&
+        (value as any).result !== null &&
+        (value as any).result !== undefined
+      ) {
         value = (value as any).result;
       }
     }
-    const parsed = Number(String(value ?? "").replace(/,/g, "").trim());
+    const parsed = Number(
+      String(value ?? "")
+        .replace(/,/g, "")
+        .trim(),
+    );
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
   private cleanImportCode(raw: string, fallback: string) {
     if (!raw || /^none$/i.test(raw) || /^n\/a$/i.test(raw)) return fallback;
-    const cleaned = raw.toUpperCase().replace(/[^A-Z0-9._/-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+    const cleaned = raw
+      .toUpperCase()
+      .replace(/[^A-Z0-9._/-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
     return cleaned || fallback;
   }
 
@@ -679,7 +1078,7 @@ export class InventoryService {
     const [ledger, grn, issues] = await this.prisma.$transaction([
       this.prisma.stockLedgerEntry.count({ where: { itemId: id } }),
       this.prisma.goodsReceivingLine.count({ where: { itemId: id } }),
-      this.prisma.issueRequestLine.count({ where: { itemId: id } })
+      this.prisma.issueRequestLine.count({ where: { itemId: id } }),
     ]);
     return ledger + grn + issues > 0;
   }

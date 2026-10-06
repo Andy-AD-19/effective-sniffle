@@ -80,13 +80,13 @@ The smoke test exercises item CRUD/search, goods receiving, inspection, storage 
 
 All seeded users use password `Password123!`.
 
-| Role | Email |
-| --- | --- |
-| System Administrator | `admin@fmoh.local` |
-| Storekeeper | `storekeeper@fmoh.local` |
-| Department User | `requester@fmoh.local` |
-| Approver | `approver@fmoh.local` |
-| Viewer/Auditor | `auditor@fmoh.local` |
+| Role                 | Email                    |
+| -------------------- | ------------------------ |
+| System Administrator | `admin@fmoh.local`       |
+| Storekeeper          | `storekeeper@fmoh.local` |
+| Department User      | `requester@fmoh.local`   |
+| Approver             | `approver@fmoh.local`    |
+| Viewer/Auditor       | `auditor@fmoh.local`     |
 
 ## Documentation
 

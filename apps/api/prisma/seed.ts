@@ -1,6 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
-import { ItemKind, LedgerEntryType, RoleName, StockSourceType } from "../src/modules/domain/prisma-enums";
+import {
+  ItemKind,
+  LedgerEntryType,
+  RoleName,
+  StockSourceType,
+} from "../src/modules/domain/prisma-enums";
 import { configureSqliteDatabaseUrl } from "../src/modules/prisma/sqlite-url";
 
 configureSqliteDatabaseUrl();
@@ -9,22 +14,45 @@ const prisma = new PrismaClient();
 async function main() {
   const passwordHash = await bcrypt.hash("Password123!", 10);
 
-  let logistics = await prisma.department.findFirst({ where: { OR: [{ code: "LOG" }, { name: "Logistics" }] } });
+  let logistics = await prisma.department.findFirst({
+    where: { OR: [{ code: "LOG" }, { name: "Logistics" }] },
+  });
   if (!logistics) {
-    logistics = await prisma.department.create({ data: { code: "LOG", name: "Logistics" } });
+    logistics = await prisma.department.create({
+      data: { code: "LOG", name: "Logistics" },
+    });
   }
-  let administration = await prisma.department.findFirst({ where: { OR: [{ code: "ADM" }, { name: "Administration" }] } });
+  let administration = await prisma.department.findFirst({
+    where: { OR: [{ code: "ADM" }, { name: "Administration" }] },
+  });
   if (!administration) {
-    administration = await prisma.department.create({ data: { code: "ADM", name: "Administration" } });
+    administration = await prisma.department.create({
+      data: { code: "ADM", name: "Administration" },
+    });
   }
 
   const users = [
     ["admin@fmoh.local", "Amina Yusuf", RoleName.SYSTEM_ADMINISTRATOR, null],
-    ["storekeeper@fmoh.local", "Musa Bello", RoleName.STOREKEEPER, logistics.id],
-    ["requester@fmoh.local", "Grace Okoro", RoleName.DEPARTMENT_USER, administration.id],
+    [
+      "storekeeper@fmoh.local",
+      "Musa Bello",
+      RoleName.STOREKEEPER,
+      logistics.id,
+    ],
+    [
+      "requester@fmoh.local",
+      "Grace Okoro",
+      RoleName.DEPARTMENT_USER,
+      administration.id,
+    ],
     ["approver@fmoh.local", "Samuel Adeyemi", RoleName.APPROVER, logistics.id],
-    ["inspector@fmoh.local", "Tadesse Bekele", RoleName.INSPECTOR, logistics.id],
-    ["auditor@fmoh.local", "Nora Eze", RoleName.VIEWER_AUDITOR, null]
+    [
+      "inspector@fmoh.local",
+      "Tadesse Bekele",
+      RoleName.INSPECTOR,
+      logistics.id,
+    ],
+    ["auditor@fmoh.local", "Nora Eze", RoleName.VIEWER_AUDITOR, null],
   ] as const;
 
   for (const [email, fullName, role, departmentId] of users) {
@@ -32,24 +60,40 @@ async function main() {
     await prisma.user.upsert({
       where: { email },
       update: { passwordHash: userPasswordHash, role, fullName },
-      create: { email, fullName, role, departmentId, passwordHash: userPasswordHash }
+      create: {
+        email,
+        fullName,
+        role,
+        departmentId,
+        passwordHash: userPasswordHash,
+      },
     });
   }
 
-  const admin = await prisma.user.findUniqueOrThrow({ where: { email: "admin@fmoh.local" } });
-  const storekeeper = await prisma.user.findUniqueOrThrow({ where: { email: "storekeeper@fmoh.local" } });
+  const admin = await prisma.user.findUniqueOrThrow({
+    where: { email: "admin@fmoh.local" },
+  });
+  const storekeeper = await prisma.user.findUniqueOrThrow({
+    where: { email: "storekeeper@fmoh.local" },
+  });
   for (const [name, desc] of [
     ["Office Supplies", "Consumable office and institutional supplies"],
     ["Equipment", "Fixed assets and durable goods"],
-    ["Pharmaceuticals & Medicines", "Essential medicines and clinical pharmaceuticals"],
-    ["Medical Supplies", "Consumable clinical supplies and surgical disposables"],
+    [
+      "Pharmaceuticals & Medicines",
+      "Essential medicines and clinical pharmaceuticals",
+    ],
+    [
+      "Medical Supplies",
+      "Consumable clinical supplies and surgical disposables",
+    ],
     ["Laboratory Reagents", "Diagnostic test kits and reagents"],
     ["Medical Equipment", "Durable medical and hospital devices"],
   ] as const) {
     await prisma.category.upsert({
       where: { name },
       update: { description: desc },
-      create: { name, description: desc }
+      create: { name, description: desc },
     });
   }
 
@@ -62,12 +106,12 @@ async function main() {
     ["Vial", "vial"],
     ["Set", "Set"],
     ["Piece", "pc"],
-    ["Roll", "roll"]
+    ["Roll", "roll"],
   ] as const) {
     await prisma.unitOfMeasure.upsert({
       where: { symbol },
       update: { name },
-      create: { name, symbol }
+      create: { name, symbol },
     });
   }
 
@@ -77,12 +121,12 @@ async function main() {
     "Global Fund Grant",
     "USAID / PEPFAR",
     "WHO Emergency Relief",
-    "Direct Institutional Donation"
+    "Direct Institutional Donation",
   ] as const) {
     await prisma.fundingSource.upsert({
       where: { name },
       update: {},
-      create: { name }
+      create: { name },
     });
   }
 
@@ -91,12 +135,12 @@ async function main() {
     ["Central Medical Store", "CMS"],
     ["Cold Chain Facility", "COLD"],
     ["Emergency Pharmacy Store", "EMRG"],
-    ["Returned Items Location", "RETURNED"]
+    ["Returned Items Location", "RETURNED"],
   ] as const) {
     await prisma.storeLocation.upsert({
       where: { code },
       update: { name },
-      create: { code, name }
+      create: { code, name },
     });
   }
 
@@ -107,21 +151,33 @@ async function main() {
     ["Contaminated", "Contaminated or compromised stock."],
     ["Obsolete", "No longer required or superseded."],
     ["Recalled", "Recalled by supplier, manufacturer, or authority."],
-    ["Other", "Other documented disposal reason."]
+    ["Other", "Other documented disposal reason."],
   ] as const) {
     await prisma.disposalReason.upsert({
       where: { name },
       update: { description, active: true },
-      create: { name, description }
+      create: { name, description },
     });
   }
 
-  const officeSupplies = await prisma.category.findUniqueOrThrow({ where: { name: "Office Supplies" } });
-  const equipment = await prisma.category.findUniqueOrThrow({ where: { name: "Equipment" } });
-  const pack = await prisma.unitOfMeasure.findUniqueOrThrow({ where: { symbol: "pack" } });
-  const each = await prisma.unitOfMeasure.findUniqueOrThrow({ where: { symbol: "ea" } });
-  const source = await prisma.fundingSource.findFirstOrThrow({ where: { name: "Federal Allocation" } });
-  const store = await prisma.storeLocation.findUniqueOrThrow({ where: { code: "MAIN" } });
+  const officeSupplies = await prisma.category.findUniqueOrThrow({
+    where: { name: "Office Supplies" },
+  });
+  const equipment = await prisma.category.findUniqueOrThrow({
+    where: { name: "Equipment" },
+  });
+  const pack = await prisma.unitOfMeasure.findUniqueOrThrow({
+    where: { symbol: "pack" },
+  });
+  const each = await prisma.unitOfMeasure.findUniqueOrThrow({
+    where: { symbol: "ea" },
+  });
+  const source = await prisma.fundingSource.findFirstOrThrow({
+    where: { name: "Federal Allocation" },
+  });
+  const store = await prisma.storeLocation.findUniqueOrThrow({
+    where: { code: "MAIN" },
+  });
   const storageLocation = await prisma.storageLocation.upsert({
     where: { locationCode: "STORE-A-S2-B5" },
     update: {},
@@ -132,14 +188,14 @@ async function main() {
       shelfNumber: "2",
       rackNumber: "R1",
       binNumber: "5",
-      description: "Store A, Shelf 2, Bin 5"
-    }
+      description: "Store A, Shelf 2, Bin 5",
+    },
   });
 
   const returnedStore = await prisma.storeLocation.upsert({
     where: { code: "RETURNED" },
     update: { name: "Returned Items Location" },
-    create: { code: "RETURNED", name: "Returned Items Location" }
+    create: { code: "RETURNED", name: "Returned Items Location" },
   });
   await prisma.storageLocation.upsert({
     where: { locationCode: "RET-HOLDING-01" },
@@ -151,8 +207,9 @@ async function main() {
       shelfNumber: "R1",
       rackNumber: "R-RET",
       binNumber: "HOLD",
-      description: "Dedicated holding location for returned items pending inspection"
-    }
+      description:
+        "Dedicated holding location for returned items pending inspection",
+    },
   });
 
   const printerPaper = await prisma.item.upsert({
@@ -163,7 +220,7 @@ async function main() {
       categoryId: officeSupplies.id,
       unitId: pack.id,
       defaultLocationId: store.id,
-      fundingSourceId: source.id
+      fundingSourceId: source.id,
     },
     create: {
       code: "ITM-0001",
@@ -175,8 +232,8 @@ async function main() {
       reorderLevel: 120,
       minimumStock: 80,
       maximumStock: 1000,
-      fundingSourceId: source.id
-    }
+      fundingSourceId: source.id,
+    },
   });
   const microscope = await prisma.item.upsert({
     where: { code: "EQP-0001" },
@@ -191,8 +248,8 @@ async function main() {
       reorderLevel: 2,
       minimumStock: 1,
       maximumStock: 10,
-      fundingSourceId: source.id
-    }
+      fundingSourceId: source.id,
+    },
   });
 
   const supplier = await prisma.supplierDonor.upsert({
@@ -202,8 +259,8 @@ async function main() {
       id: "seed-supplier",
       name: "National Office Supplies",
       type: StockSourceType.PROCUREMENT,
-      contact: "supplies@example.local"
-    }
+      contact: "supplies@example.local",
+    },
   });
 
   const grn = await prisma.goodsReceivingNote.upsert({
@@ -223,19 +280,19 @@ async function main() {
             quantityReceived: 500,
             unitPrice: 1.25,
             batchNumber: "PAPER-2601",
-            expiryDate: new Date("2029-12-31")
+            expiryDate: new Date("2029-12-31"),
           },
           {
             itemId: microscope.id,
             quantityReceived: 4,
             unitPrice: 650,
             batchNumber: "MIC-2026-A",
-            expiryDate: new Date("2031-12-31")
-          }
-        ]
-      }
+            expiryDate: new Date("2031-12-31"),
+          },
+        ],
+      },
     },
-    include: { lines: true }
+    include: { lines: true },
   });
 
   for (const line of grn.lines) {
@@ -250,14 +307,17 @@ async function main() {
         quantityAccepted: accepted,
         quantityRejected: rejected,
         outcome: rejected > 0 ? "PARTIALLY_ACCEPTED" : "ACCEPTED",
-        qualityNotes: rejected > 0 ? "Some packs damaged at delivery." : "Accepted in good condition.",
+        qualityNotes:
+          rejected > 0
+            ? "Some packs damaged at delivery."
+            : "Accepted in good condition.",
         rejectionReason: rejected > 0 ? "Damaged packaging" : null,
         storeLocationId: store.id,
         shelfCode: "A1",
         binCode: line.itemId === printerPaper.id ? "B01" : "B02",
         barcode: `FMOH-${line.id.slice(-8)}`,
-        inspectedById: storekeeper.id
-      }
+        inspectedById: storekeeper.id,
+      },
     });
     const batch = await prisma.stockBatch.upsert({
       where: { barcodeValue: `SEED-BAR-${line.id.slice(-8)}` },
@@ -275,11 +335,16 @@ async function main() {
         remainingQuantity: 0,
         barcodeValue: `SEED-BAR-${line.id.slice(-8)}`,
         qrCodeValue: `SEED-QR-${line.id.slice(-8)}`,
-        status: "AVAILABLE"
-      }
+        status: "AVAILABLE",
+      },
     });
     const balance = await prisma.stockLocationBalance.upsert({
-      where: { batchId_storageLocationId: { batchId: batch.id, storageLocationId: storageLocation.id } },
+      where: {
+        batchId_storageLocationId: {
+          batchId: batch.id,
+          storageLocationId: storageLocation.id,
+        },
+      },
       update: {},
       create: {
         itemId: line.itemId,
@@ -287,8 +352,8 @@ async function main() {
         storeId: store.id,
         storageLocationId: storageLocation.id,
         quantityOnHand: accepted,
-        quantityAvailable: accepted
-      }
+        quantityAvailable: accepted,
+      },
     });
     await prisma.stockLedgerEntry.upsert({
       where: { entryNumber: `LED-2026-SEED-${line.id.slice(-6)}` },
@@ -300,7 +365,7 @@ async function main() {
         binCode: storageLocation.binNumber,
         sourceEntity: "StockLocationBalance",
         sourceId: balance.id,
-        notes: "Seed storage allocation receipt"
+        notes: "Seed storage allocation receipt",
       },
       create: {
         entryNumber: `LED-2026-SEED-${line.id.slice(-6)}`,
@@ -319,8 +384,8 @@ async function main() {
         sourceId: balance.id,
         grnLineId: line.id,
         actorId: storekeeper.id,
-        notes: "Seed storage allocation receipt"
-      }
+        notes: "Seed storage allocation receipt",
+      },
     });
     await prisma.barcodeQRCode.upsert({
       where: { value: `SEED-QR-${line.id.slice(-8)}-LOC` },
@@ -337,9 +402,9 @@ async function main() {
           store: store.name,
           shelfNumber: storageLocation.shelfNumber,
           binLocation: storageLocation.binNumber,
-          quantity: accepted
-        })
-      }
+          quantity: accepted,
+        }),
+      },
     });
   }
 
@@ -348,8 +413,8 @@ async function main() {
       actorId: admin.id,
       action: "seed.completed",
       entityType: "System",
-      after: JSON.stringify({ message: "Seed data installed" })
-    }
+      after: JSON.stringify({ message: "Seed data installed" }),
+    },
   });
 }
 

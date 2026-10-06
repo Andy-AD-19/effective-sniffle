@@ -1,4 +1,4 @@
-﻿-- FMOH Institutional Inventory - Cloudflare D1 Database Schema
+-- FMOH Institutional Inventory - Cloudflare D1 Database Schema
 CREATE TABLE IF NOT EXISTS "User" (
     "id" TEXT PRIMARY KEY,
     "email" TEXT NOT NULL UNIQUE,
@@ -200,6 +200,8 @@ CREATE TABLE IF NOT EXISTS "ItemReturn" (
     "reason" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'PENDING_INSPECTION',
     "remarks" TEXT,
+    "voucherId" TEXT,
+    "issueRequestId" TEXT,
     "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
     "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -313,3 +315,11 @@ CREATE TABLE IF NOT EXISTS "Inspection" (
     "createdAt" TEXT NOT NULL DEFAULT (datetime('now')),
     "updatedAt" TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS "AppSetting" (
+    "key"       TEXT PRIMARY KEY,
+    "value"     TEXT NOT NULL,
+    "updatedAt" TEXT NOT NULL DEFAULT (datetime('now')),
+    "updatedBy" TEXT
+);
+
